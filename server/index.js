@@ -209,6 +209,15 @@ app.use(
   express.static(path.join(__dirname, "..", "public"), {
     index: "index.html",
     extensions: ["html"],
+    // Never let the browser serve stale JS/CSS/HTML — always revalidate,
+    // so a fixed frontend is picked up immediately without a hard reload.
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-store");
+      } else {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    },
   }),
 );
 

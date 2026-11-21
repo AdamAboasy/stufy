@@ -1161,12 +1161,27 @@
   window.applyTheme = applyTheme;
   window.state = state;
 
+  function showBootError(err) {
+    const msg = (err && err.message) || "Unexpected error";
+    document.body.innerHTML =
+      `<div class="auth"><main class="auth-main"><div class="auth-card" style="text-align:center">` +
+      `<div class="brand-logo" style="margin:0 auto 16px">${UI.icon("alert", 28)}</div>` +
+      `<h1>${t("common.error") || "Error"}</h1>` +
+      `<p class="sub">${UI.escape(msg)}</p>` +
+      `<a class="btn btn-primary" href="/" style="margin-top:12px">${t("common.back") || "Reload"}</a>` +
+      `</div></main></div>`;
+  }
+
   async function boot() {
-    await loadI18n();
-    applyTheme((state.profile && state.profile.theme) || "system");
-    const user = await loadSession();
-    if (user && state.profile) applyTheme(state.profile.theme || "system");
-    await render();
+    try {
+      await loadI18n();
+      applyTheme((state.profile && state.profile.theme) || "system");
+      const user = await loadSession();
+      if (user && state.profile) applyTheme(state.profile.theme || "system");
+      await render();
+    } catch (err) {
+      showBootError(err);
+    }
   }
 
   if (document.readyState === "loading") {
