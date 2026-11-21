@@ -1,4 +1,5 @@
 // API — thin fetch wrapper that normalizes { ok, data, error } responses.
+// Adds a request timeout so no call can hang the UI forever.
 async function api(path, options = {}) {
   const opts = {
     credentials: "same-origin",
@@ -9,7 +10,26 @@ async function api(path, options = {}) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(opts.body);
   }
-  const res = await fetch(path, opts);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  opts.signal = controller.signal;
+
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch (err) {
+    clearTimeout(timeout);
+    const e = new Error(
+      err.name === "AbortError"
+        ? "Request timed out — check your connection and reload."
+        : "Network error — the server could not be reached."
+    );
+    e.code = "NETWORK";
+    throw e;
+  }
+  clearTimeout(timeout);
+
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
     const json = await res.json();

@@ -808,7 +808,7 @@
                 "<button class='btn btn-sm btn-outline' id='copyBatch'>"+t("admin.copyBatch")+"</button></div><ul>"+
                 r.codes.map(function(c){return "<li class='font-mono text-sm'>"+UI.escape(c.plaintext)+"</li>";}).join("")+"</ul></div>";
               var box=document.getElementById("genResult"); box.innerHTML=html;
-              document.getElementById("copyBatch").addEventListener("click",function(){ navigator.clipboard.writeText(r.codes.map(function(c){return c.plaintext;}).join("\n")); UI.toast(t("common.copied"),"success"); });
+              document.getElementById("copyBatch").addEventListener("click",function(){ navigator.clipboard.writeText(r.codes.map(function(c){return c.plaintext;}).join("\\n")); UI.toast(t("common.copied"),"success"); });
               render();
             }).catch(function(e){UI.toast(e.message,"error");});
           });
@@ -1162,13 +1162,22 @@
   window.state = state;
 
   function showBootError(err) {
-    const msg = (err && err.message) || "Unexpected error";
+    let msg = (err && err.message) || "Unexpected error";
+    let hint = "";
+    if (location.protocol === "file:") {
+      msg = "Open the app through the running server, not by opening the HTML file directly.";
+      hint = "Start the server and open http://localhost:3000 in your browser.";
+    } else if (err && (err.code === "NETWORK" || /network|timed out|reached/i.test(msg))) {
+      hint = "The server could not be reached. Check it is running, then reload.";
+    }
+    const hintHtml = hint ? `<p class="hint" style="margin-top:10px">${UI.escape(hint)}</p>` : "";
     document.body.innerHTML =
       `<div class="auth"><main class="auth-main"><div class="auth-card" style="text-align:center">` +
       `<div class="brand-logo" style="margin:0 auto 16px">${UI.icon("alert", 28)}</div>` +
       `<h1>${t("common.error") || "Error"}</h1>` +
       `<p class="sub">${UI.escape(msg)}</p>` +
-      `<a class="btn btn-primary" href="/" style="margin-top:12px">${t("common.back") || "Reload"}</a>` +
+      hintHtml +
+      `<button class="btn btn-primary" onclick="location.reload()" style="margin-top:12px">${t("common.back") || "Reload"}</button>` +
       `</div></main></div>`;
   }
 
