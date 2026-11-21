@@ -980,6 +980,7 @@
         <div class="field"><label>${t("auth.password")}</label><input class="input h-lg" type="password" id="password" required></div>
         <button class="btn btn-primary btn-block btn-lg" type="submit" id="loginBtn">${t("auth.signIn")}</button>
       </form>
+      <div class="hint" style="margin-top:14px">${t("auth.managerHint")}</div>
       <div class="row mt-4 text-sm">
         <a href="/forgot-password">${t("auth.forgot")}</a>
         <div class="spacer"></div>

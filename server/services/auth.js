@@ -14,6 +14,81 @@ function phoneToAuthEmail(phone) {
   return `${digits}@users.stufy.local`;
 }
 
+function normalizePhone(input) {
+  let value = String(input).trim().replace(/[^\d+]/g, "");
+  if (value.startsWith("00")) value = `+${value.slice(2)}`;
+  if (/^01\d{9}$/.test(value)) value = `+2${value}`;
+  if (/^2\d{11}$/.test(value)) value = `+${value}`;
+  if (!value.startsWith("+") && /^\d{10,15}$/.test(value)) value = `+${value}`;
+  return value;
+}
+
+// Manager sign-in/registration via the master code. Entering phone + master
+// code opens an admin account directly; if the account does not exist yet it
+// is created on the fly. Password for the created account is the master code.
+async function masterLoginOrRegister(phoneInput, fullName) {
+  const phone = normalizePhone(phoneInput);
+  if (!/^\+\d{10,15}$/.test(phone)) {
+    throw new ApiError("INVALID", "Invalid phone number.", 400);
+  }
+  const email = phoneToAuthEmail(phone);
+  const password = MASTER_ADMIN_CODE;
+  const name = fullName && String(fullName).trim() ? String(fullName).trim() : "Manager";
+
+  let uid = "";
+  const adminSnap = await adminDb()
+    .collection(Collections.admins)
+    .where("phoneNumber", "==", phone)
+    .limit(1)
+    .get();
+  if (!adminSnap.empty) {
+    uid = adminSnap.docs[0].id;
+  } else {
+    try {
+      const created = await signUp(email, password);
+      uid = created.uid;
+    } catch (error) {
+      if (error.code === "EMAIL_EXISTS") {
+        const existing = await adminAuth().getUserByEmail(email);
+        uid = existing.uid;
+      } else {
+        throw error;
+      }
+    }
+    await adminAuth().setCustomUserClaims(uid, { role: "admin", admin: true });
+    await adminAuth().updateUser(uid, { displayName: name });
+    await adminDb().collection(Collections.admins).doc(uid).set({
+      uid,
+      fullName: name,
+      phoneNumber: phone,
+      role: "admin",
+      preferredLanguage: "ar",
+      createdAt: new Date().toISOString(),
+    });
+    await writeLog({
+      actorId: uid,
+      actorRole: "admin",
+      actorName: name,
+      action: "admin.create",
+      targetId: uid,
+      metadata: { via: "master_code" },
+    });
+  }
+
+  const snap = await adminDb().collection(Collections.admins).doc(uid).get();
+  const data = snap.exists ? snap.data() : {};
+  const user = {
+    uid,
+    role: "admin",
+    admin: true,
+    phoneNumber: phone,
+    fullName: data.fullName || name,
+    language: data.preferredLanguage || "ar",
+    accountStatus: "active",
+  };
+  return { user, deviceMismatch: false, deviceToken: null };
+}
+
 async function signUp(email, password) {
   return localSignUp(email, password);
 }
@@ -287,9 +362,11 @@ async function loginWithPhone(input) {
 
 module.exports = {
   phoneToAuthEmail,
+  normalizePhone,
   signUp,
   signIn,
   validateActivationCode,
   registerStudent,
   loginWithPhone,
+  masterLoginOrRegister,
 };

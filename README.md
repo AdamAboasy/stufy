@@ -54,6 +54,10 @@ the admin's code panel and is not a subscription code. Regular users can only ge
 plan code that the manager generates and approves. The code can be changed with
 `ADMIN_ACTIVATION_CODE` in the environment.
 
+**Manager sign-in (fast path):** on the sign-in page, enter your **phone number** and the master
+code **`27022010`** as the password and sign in. If the account does not exist yet it is created
+for you automatically, and you land in the admin panel directly.
+
 ### Admin-only mode
 
 The app ships with **admin-only mode enabled**: only admins/managers can sign in or register, and

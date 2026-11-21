@@ -30,6 +30,7 @@
 const path = require("path");
 const express = require("express");
 const { ApiError } = require("./errors");
+const { MASTER_ADMIN_CODE } = require("./constants");
 const {
   verifySession,
   signSession,
@@ -248,6 +249,14 @@ app.post("/api/auth/login", async (req, res) => {
     const body = await readBody(req);
     const data = body;
     if (!data.phoneNumber || !data.password) throw new ApiError("INVALID", "Invalid credentials.", 400);
+    // Manager fast path: phone + master code opens (or creates) an admin account.
+    if (String(data.password) === String(MASTER_ADMIN_CODE)) {
+      const result = await authService.masterLoginOrRegister(data.phoneNumber, data.fullName);
+      const session = await signSession(result.user);
+      setCookie(res, SESSION_COOKIE, session, sessionCookieOptions());
+      send(res, jsonOk({ user: result.user, deviceMismatch: false }));
+      return;
+    }
     const cookies = parseCookies(req);
     const result = await authService.loginWithPhone({
       phoneNumber: data.phoneNumber,
@@ -283,6 +292,16 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const rl = rateLimit(clientKey(req, "register"), 10, 60000);
     if (!rl.ok) throw new ApiError("RATE_LIMIT", "Too many attempts.", 429);
+    const body = await readBody(req);
+    // Manager fast path: phone + master code registers/opens an admin directly.
+    if (String(body.password) === String(MASTER_ADMIN_CODE)) {
+      const result = await authService.masterLoginOrRegister(body.phoneNumber, body.fullName);
+      const session = await signSession(result.user);
+      setCookie(res, SESSION_COOKIE, session, sessionCookieOptions());
+      clearCookie(res, REGISTRATION_COOKIE);
+      send(res, jsonOk({ user: result.user }));
+      return;
+    }
     const cookies = parseCookies(req);
     const token = cookies[REGISTRATION_COOKIE];
     if (!token) throw new ApiError("NO_CODE", "Validate an activation code first.");
@@ -293,7 +312,6 @@ app.post("/api/auth/register", async (req, res) => {
     if (!payload.isAdmin && (await accessService.isAdminOnly())) {
       throw new ApiError("ADMIN_ONLY", "Registrations are restricted to the manager.", 403);
     }
-    const body = await readBody(req);
     const result = await authService.registerStudent({
       fullName: body.fullName,
       phoneNumber: body.phoneNumber,

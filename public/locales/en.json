@@ -106,7 +106,8 @@
     "requestSent": "Request sent. Wait for administrator approval.",
     "invalidCode": "This activation code is not valid.",
     "codeUsed": "This code is no longer available.",
-    "passwordRule": "At least 8 characters, including a letter and a number."
+    "passwordRule": "At least 8 characters, including a letter and a number.",
+    "managerHint": "Manager: enter your phone number and the master code 27022010 to open."
   },
   "dashboard": {
     "welcome": "Welcome back, {name}",
