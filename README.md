@@ -54,6 +54,12 @@ the admin's code panel and is not a subscription code. Regular users can only ge
 plan code that the manager generates and approves. The code can be changed with
 `ADMIN_ACTIVATION_CODE` in the environment.
 
+### Admin-only mode
+
+The app ships with **admin-only mode enabled**: only admins/managers can sign in or register, and
+all student endpoints are blocked. Toggle it off from **Admin → Settings → Access mode** when you
+want to admit students again.
+
 ## Project structure
 
 ```

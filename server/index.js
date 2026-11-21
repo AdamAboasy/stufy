@@ -57,6 +57,7 @@ const devicesService = require("./services/devices");
 const filesService = require("./services/files");
 const notificationsService = require("./services/notifications");
 const logsService = require("./services/logs");
+const accessService = require("./services/access");
 
 const app = express();
 const jsonParser = express.json({ limit: "4mb" });
@@ -147,6 +148,10 @@ async function requireUser(req) {
   if (!user) throw new ApiError("UNAUTHENTICATED", "Please sign in.", 401);
   if (user.accountStatus === "suspended") {
     throw new ApiError("SUSPENDED", "This account is suspended.", 403);
+  }
+  // Admin-only mode: restrict every authenticated route to admins/managers.
+  if (!user.admin && user.role !== "admin" && (await accessService.isAdminOnly())) {
+    throw new ApiError("ADMIN_ONLY", "Access is restricted to the manager.", 403);
   }
   return user;
 }
@@ -250,6 +255,10 @@ app.post("/api/auth/login", async (req, res) => {
       userAgent: req.headers["user-agent"] || "unknown",
       deviceToken: cookies[DEVICE_COOKIE] || null,
     });
+    // Admin-only mode: students may not sign in at all.
+    if (!result.user.admin && result.user.role !== "admin" && (await accessService.isAdminOnly())) {
+      throw new ApiError("ADMIN_ONLY", "Access is restricted to the manager.", 403);
+    }
     if (result.deviceMismatch) {
       send(res, jsonOk({
         deviceMismatch: true,
@@ -279,6 +288,11 @@ app.post("/api/auth/register", async (req, res) => {
     if (!token) throw new ApiError("NO_CODE", "Validate an activation code first.");
     const payload = await verifyRegistrationToken(token);
     if (!payload) throw new ApiError("NO_CODE", "Activation session expired. Enter your code again.");
+    // Admin-only mode: block student registrations, but still allow the
+    // manager to create additional admins via the master code.
+    if (!payload.isAdmin && (await accessService.isAdminOnly())) {
+      throw new ApiError("ADMIN_ONLY", "Registrations are restricted to the manager.", 403);
+    }
     const body = await readBody(req);
     const result = await authService.registerStudent({
       fullName: body.fullName,
@@ -1070,12 +1084,8 @@ app.get("/api/admin/logs", async (req, res) => {
 app.get("/api/admin/settings", async (req, res) => {
   try {
     await requireAdmin(req);
-    const snap = await adminDb().collection(Collections.systemSettings).doc("default").get();
-    send(res, jsonOk({
-      settings: snap.exists
-        ? snap.data()
-        : { maintenanceMode: false, allowRegistrations: true, maxFileSizeMb: 25, subscriptionReminderDays: 3 },
-    }));
+    const settings = await accessService.getSettings();
+    send(res, jsonOk({ settings }));
   } catch (error) {
     send(res, handleError(error));
   }
@@ -1085,7 +1095,11 @@ app.patch("/api/admin/settings", async (req, res) => {
   try {
     const admin = await requireAdmin(req);
     const body = await readBody(req);
-    await adminDb().collection(Collections.systemSettings).doc("default").set(body, { merge: true });
+    if (body.adminOnly !== undefined) {
+      await accessService.setAdminOnly(body.adminOnly, admin);
+    }
+    const { adminOnly, ...rest } = body;
+    await adminDb().collection(Collections.systemSettings).doc("default").set(rest, { merge: true });
     await logsService.writeLog({
       actorId: admin.uid,
       actorRole: "admin",

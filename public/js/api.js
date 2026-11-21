@@ -17,6 +17,10 @@ async function api(path, options = {}) {
       const err = new Error(json.error?.message || "Request failed");
       err.code = json.error?.code || "ERROR";
       err.status = res.status;
+      // If access is restricted to the manager, send blocked users to sign in.
+      if (err.code === "ADMIN_ONLY" && !location.pathname.startsWith("/login")) {
+        location.href = "/login";
+      }
       throw err;
     }
     return json.data;
