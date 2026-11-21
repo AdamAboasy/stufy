@@ -349,6 +349,8 @@ app.post("/api/auth/logout", (_req, res) => {
 
 app.get("/api/auth/me", async (req, res) => {
   try {
+    // Ensure the admin account exists before auto-login (fresh start).
+    await bootstrapService.bootstrapIfNeeded();
     let user = await getSessionUser(req);
     // Auto-login mode: open straight into the admin panel with no sign-in step.
     if (!user && (await accessService.isAutoLogin())) {
