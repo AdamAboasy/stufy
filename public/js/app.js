@@ -1182,13 +1182,16 @@
   }
 
   async function boot() {
+    window.__stufyReady = false;
     try {
       await loadI18n();
       applyTheme((state.profile && state.profile.theme) || "system");
       const user = await loadSession();
       if (user && state.profile) applyTheme(state.profile.theme || "system");
       await render();
+      window.__stufyReady = true;
     } catch (err) {
+      window.__stufyReady = true; // error card is shown; stop the fallback timer
       showBootError(err);
     }
   }
