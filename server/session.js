@@ -58,6 +58,7 @@ async function verifyRegistrationToken(token) {
       codeId: String(payload.codeId),
       codeHash: String(payload.codeHash),
       planType: String(payload.planType),
+      isAdmin: Boolean(payload.isAdmin),
     };
   } catch {
     return null;

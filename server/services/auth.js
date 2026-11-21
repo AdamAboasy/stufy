@@ -2,7 +2,7 @@
 
 const { adminDb, adminAuth, Collections } = require("../db");
 const { hashCode } = require("../crypto");
-const { PLAN_DURATIONS } = require("../constants");
+const { PLAN_DURATIONS, MASTER_ADMIN_CODE } = require("../constants");
 const { ApiError } = require("../errors");
 const { localSignUp, localSignIn } = require("../local");
 const { expirationFrom } = require("./subscriptions");
@@ -23,7 +23,19 @@ async function signIn(email, password) {
 }
 
 async function validateActivationCode(plaintext) {
-  const codeHash = hashCode(plaintext);
+  const normalized = String(plaintext || "").trim().toUpperCase();
+
+  // Master admin code: grants manager/admin access. Only the manager holds it.
+  if (MASTER_ADMIN_CODE && normalized === String(MASTER_ADMIN_CODE).toUpperCase()) {
+    return {
+      codeId: "master",
+      codeHash: hashCode(normalized),
+      planType: "master",
+      isAdmin: true,
+    };
+  }
+
+  const codeHash = hashCode(normalized);
   const snap = await adminDb()
     .collection(Collections.activationCodes)
     .where("codeHash", "==", codeHash)
@@ -38,17 +50,28 @@ async function validateActivationCode(plaintext) {
     codeId: snap.docs[0].id,
     codeHash,
     planType: data.planType,
+    isAdmin: false,
   };
 }
 
 async function registerStudent(input) {
   const email = phoneToAuthEmail(input.phoneNumber);
-  const existing = await adminDb()
+
+  // Reject if the phone is already registered (as a student or as an admin).
+  const existingStudent = await adminDb()
     .collection(Collections.students)
     .where("phoneNumber", "==", input.phoneNumber)
     .limit(1)
     .get();
-  if (!existing.empty) {
+  if (!existingStudent.empty) {
+    throw new ApiError("PHONE_TAKEN", "An account already exists for this phone number.");
+  }
+  const existingAdmin = await adminDb()
+    .collection(Collections.admins)
+    .where("phoneNumber", "==", input.phoneNumber)
+    .limit(1)
+    .get();
+  if (!existingAdmin.empty) {
     throw new ApiError("PHONE_TAKEN", "An account already exists for this phone number.");
   }
 
@@ -63,6 +86,46 @@ async function registerStudent(input) {
     throw error;
   }
 
+  // ---- Master-code path: create an admin / manager account. ----
+  if (input.isAdmin) {
+    try {
+      await adminAuth().setCustomUserClaims(uid, { role: "admin", admin: true });
+      await adminAuth().updateUser(uid, { displayName: input.fullName });
+      await adminDb().collection(Collections.admins).doc(uid).set({
+        uid,
+        fullName: input.fullName,
+        phoneNumber: input.phoneNumber,
+        role: "admin",
+        preferredLanguage: "ar",
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      await adminAuth().deleteUser(uid);
+      throw new ApiError("INTERNAL", "Could not create the admin account.");
+    }
+    await writeLog({
+      actorId: uid,
+      actorRole: "admin",
+      actorName: input.fullName,
+      action: "admin.create",
+      targetId: uid,
+      metadata: { via: "master_code" },
+    });
+    return {
+      user: {
+        uid,
+        role: "admin",
+        admin: true,
+        phoneNumber: input.phoneNumber,
+        fullName: input.fullName,
+        language: "ar",
+        accountStatus: "active",
+      },
+      deviceToken: null,
+    };
+  }
+
+  // ---- Regular student path: consume a plan code and create a subscription. ----
   try {
     await adminAuth().setCustomUserClaims(uid, { role: "student", admin: false });
     await adminAuth().updateUser(uid, { displayName: input.fullName });

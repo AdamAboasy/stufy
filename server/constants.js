@@ -2,7 +2,12 @@
 
 const path = require("path");
 
-const APP_NAME = "Stufy";
+const APP_NAME = "Study";
+
+// Master admin activation code. Entering this code at activation creates an
+// admin/manager account. Only the manager holds this code; regular students
+// still need a plan code issued (approved) by the manager.
+const MASTER_ADMIN_CODE = process.env.ADMIN_ACTIVATION_CODE || "27022010";
 
 const PLAN_DURATIONS = {
   weekly: 7,
@@ -23,10 +28,10 @@ const ALLOWED_MIME_TYPES = [
   "image/webp",
 ];
 
-const SESSION_COOKIE = "stufy_session";
-const DEVICE_COOKIE = "stufy_device";
-const LANG_COOKIE = "stufy_lang";
-const REGISTRATION_COOKIE = "stufy_registration";
+const SESSION_COOKIE = "study_session";
+const DEVICE_COOKIE = "study_device";
+const LANG_COOKIE = "study_lang";
+const REGISTRATION_COOKIE = "study_registration";
 
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REGISTRATION_TTL_SECONDS = 60 * 15;
@@ -55,6 +60,7 @@ const STORAGE_DIR = path.join(DATA_DIR, "storage");
 
 module.exports = {
   APP_NAME,
+  MASTER_ADMIN_CODE,
   PLAN_DURATIONS,
   MAX_FILE_SIZE_BYTES,
   ALLOWED_MIME_TYPES,

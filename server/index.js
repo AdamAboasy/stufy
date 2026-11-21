@@ -227,7 +227,7 @@ app.post("/api/auth/validate-code", async (req, res) => {
     if (code.length < 8) throw new ApiError("INVALID", "Invalid code format.", 400);
     const result = await authService.validateActivationCode(code);
     const token = await signRegistrationToken(result);
-    const out = jsonOk({ planType: result.planType, valid: true });
+    const out = jsonOk({ planType: result.planType, isAdmin: Boolean(result.isAdmin), valid: true });
     setCookie(res, REGISTRATION_COOKIE, token, registrationCookieOptions());
     send(res, out);
   } catch (error) {
@@ -287,6 +287,7 @@ app.post("/api/auth/register", async (req, res) => {
       codeId: payload.codeId,
       codeHash: payload.codeHash,
       planType: payload.planType,
+      isAdmin: payload.isAdmin,
       userAgent: req.headers["user-agent"] || "unknown",
     });
     const session = await signSession(result.user);
@@ -1104,6 +1105,6 @@ app.get("*", (_req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`[stufy] HTML/CSS/JS server running on http://0.0.0.0:${PORT}`);
-  console.log(`[stufy] backend: ${useLocalBackend() ? "local (.data/)" : "firebase"}`);
+  console.log(`[Study] HTML/CSS/JS server running on http://0.0.0.0:${PORT}`);
+  console.log(`[Study] backend: ${useLocalBackend() ? "local (.data/)" : "firebase"}`);
 });

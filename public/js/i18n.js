@@ -7,9 +7,9 @@ const I18N = {
 };
 
 function detectLang() {
-  const cookie = document.cookie.match(/(?:^|;\s*)stufy_lang=([^;]+)/);
+  const cookie = document.cookie.match(/(?:^|;\s*)study_lang=([^;]+)/);
   if (cookie) return cookie[1];
-  const stored = localStorage.getItem("stufy_lang");
+  const stored = localStorage.getItem("study_lang");
   if (stored) return stored;
   return navigator.language.startsWith("ar") ? "ar" : "en";
 }
@@ -18,8 +18,8 @@ function setLang(lang) {
   I18N.lang = lang;
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
-  document.cookie = `stufy_lang=${lang};path=/;max-age=31536000`;
-  localStorage.setItem("stufy_lang", lang);
+  document.cookie = `study_lang=${lang};path=/;max-age=31536000`;
+  localStorage.setItem("study_lang", lang);
 }
 
 function t(key, params) {

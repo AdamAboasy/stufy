@@ -35,7 +35,7 @@ async function bootstrapIfNeeded() {
         const user = await adminAuth().getUserByEmail(email);
         uid = user.uid;
       } else {
-        console.warn("[stufy] admin bootstrap failed:", message);
+        console.warn("[Study] admin bootstrap failed:", message);
         return;
       }
     }
@@ -49,7 +49,7 @@ async function bootstrapIfNeeded() {
       preferredLanguage: "ar",
       createdAt: new Date().toISOString(),
     });
-    console.log(`[stufy] Super Admin ready. Phone: ${phone}`);
+    console.log(`[Study] Super Admin ready. Phone: ${phone}`);
   }
 
   const codes = await adminDb().collection(Collections.activationCodes).limit(1).get();
@@ -68,7 +68,7 @@ async function bootstrapIfNeeded() {
       });
       all.push(...result.codes);
     }
-    console.log("[stufy] Demo activation codes:");
+    console.log("[Study] Demo activation codes:");
     for (const c of all) {
       console.log(`  ${c.planType.padEnd(10)} ${c.plaintext}`);
     }

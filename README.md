@@ -1,9 +1,9 @@
-# Stufy — Smart Study Planner
+# Study — Smart Study Planner
 
 A complete **HTML / CSS / vanilla JavaScript** study-planning SaaS, served by a lightweight
 **Node.js (Express)** backend. No React, no Next.js, no build step.
 
-Upload educational materials (PDF / Word / images), and Stufy extracts the structure,
+Upload educational materials (PDF / Word / images), and Study extracts the structure,
 pages, and topics, then builds a realistic, page-accurate study plan that respects rest
 days, routines, and your daily study time.
 
@@ -45,6 +45,14 @@ Then open <http://localhost:3000>.
 
 The bootstrap also creates one demo activation code per plan type on first run (logged to
 the console).
+
+### Master admin code
+
+Entering the master code **`27022010`** at the activation step creates an **admin / manager**
+account instead of a student account. Only the manager holds this code — it is never listed in
+the admin's code panel and is not a subscription code. Regular users can only get access with a
+plan code that the manager generates and approves. The code can be changed with
+`ADMIN_ACTIVATION_CODE` in the environment.
 
 ## Project structure
 

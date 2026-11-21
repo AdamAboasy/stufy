@@ -1,4 +1,4 @@
-// Stufy — vanilla HTML/CSS/JS application
+// Study — vanilla HTML/CSS/JS application
 (function () {
   "use strict";
 
@@ -110,7 +110,7 @@
           <div class="sidebar-inner">
             <div class="sidebar-brand">
               <a href="/${isAdmin ? "admin" : "dashboard"}" class="brand-mark">
-                <span class="brand-logo">S</span><span>${t("brand.name")}</span>
+                <span class="brand-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M2 7l10-4 10 4-10 4z"/><path d="M6 10v5c0 1.5 8 1.5 8 0v-5"/><path d="M22 7v5"/><circle cx="22" cy="13" r="1.4" fill="currentColor" stroke="none"/></svg></span><span>${t("brand.name")}</span>
               </a>
               <button class="icon-btn" id="closeSidebar" style="display:none">${UI.icon("close", 18)}</button>
             </div>
@@ -939,7 +939,7 @@
     return `
       <div class="auth">
         <aside class="auth-aside">
-          <div class="brand-mark"><span class="brand-logo">S</span><span>${t("brand.name")}</span></div>
+          <div class="brand-mark"><span class="brand-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M2 7l10-4 10 4-10 4z"/><path d="M6 10v5c0 1.5 8 1.5 8 0v-5"/><path d="M22 7v5"/><circle cx="22" cy="13" r="1.4" fill="currentColor" stroke="none"/></svg></span><span>${t("brand.name")}</span></div>
           <div>
             <div class="tagline">${t("brand.tagline")}</div>
             <h1>${t("brand.subtitle")}</h1>
@@ -993,7 +993,7 @@
       <p class="text-sm mt-4 text-muted">${t("auth.haveAccount")} <a href="/login">${t("auth.signIn")}</a></p>
       <script>
         (function(){ document.getElementById("regForm").addEventListener("submit",function(e){ e.preventDefault();
-          api("/api/auth/register",{method:"POST",body:{fullName:document.getElementById("name").value,phoneNumber:document.getElementById("phone").value,password:document.getElementById("password").value}}).then(function(){ location.href="/dashboard"; }).catch(function(err){ if(err.code==="NO_CODE"){ location.href="/activate"; return; } UI.toast(err.message,"error"); });
+          api("/api/auth/register",{method:"POST",body:{fullName:document.getElementById("name").value,phoneNumber:document.getElementById("phone").value,password:document.getElementById("password").value}}).then(function(r){ location.href=(r.user&&r.user.role==="admin")?"/admin":"/dashboard"; }).catch(function(err){ if(err.code==="NO_CODE"){ location.href="/activate"; return; } UI.toast(err.message,"error"); });
         }); })();
       <\/script>
     `);
@@ -1131,7 +1131,7 @@
   }
 
   window.addEventListener("popstate", () => render());
-  window.addEventListener("stufy:render", () => render());
+  window.addEventListener("study:render", () => render());
 
   window.render = render;
   window.applyTheme = applyTheme;
