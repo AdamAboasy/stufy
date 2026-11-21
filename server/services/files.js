@@ -1,0 +1,197 @@
+"use strict";
+
+const { adminDb, adminBucket, Collections } = require("../db");
+const { MAX_FILE_SIZE_BYTES } = require("../constants");
+const { detectFile } = require("./magic");
+const { ApiError } = require("../errors");
+const { extractDocument } = require("./extract");
+const { notifyStudent } = require("./notifications");
+
+const processing = new Set();
+
+async function uploadStudentFile(input) {
+  if (input.buffer.length > MAX_FILE_SIZE_BYTES) {
+    throw new ApiError("FILE_TOO_LARGE", "File exceeds the 25 MB limit.");
+  }
+  const detected = detectFile(input.buffer, input.filename);
+  const fileRef = adminDb().collection(Collections.uploadedFiles).doc();
+  const storagePath = `student-files/${input.studentId}/${fileRef.id}/${input.filename}`;
+  await adminBucket().file(storagePath).save(input.buffer, {
+    contentType: detected.mime,
+    metadata: { studentId: input.studentId, originalName: input.filename },
+  });
+
+  const file = {
+    id: fileRef.id,
+    studentId: input.studentId,
+    originalName: input.filename,
+    storagePath,
+    fileType: detected.type,
+    mimeType: detected.mime,
+    fileSize: input.buffer.length,
+    processingStatus: "queued",
+    totalPages: null,
+    extractedAt: null,
+    createdAt: new Date().toISOString(),
+    errorMessage: null,
+    unreadablePages: [],
+    extractionId: null,
+  };
+  await fileRef.set(file);
+
+  const jobRef = adminDb().collection(Collections.fileProcessingJobs).doc();
+  await jobRef.set({
+    fileId: fileRef.id,
+    studentId: input.studentId,
+    status: "queued",
+    createdAt: new Date().toISOString(),
+    startedAt: null,
+    finishedAt: null,
+    errorMessage: null,
+    originalName: input.filename,
+  });
+
+  void processFileJob(jobRef.id, fileRef.id, input.studentId, input.buffer, detected.mime);
+
+  return { ...file };
+}
+
+async function processFileJob(jobId, fileId, studentId, buffer, mimeType) {
+  if (processing.has(fileId)) return;
+  processing.add(fileId);
+  const jobRef = adminDb().collection(Collections.fileProcessingJobs).doc(jobId);
+  const fileRef = adminDb().collection(Collections.uploadedFiles).doc(fileId);
+  try {
+    await jobRef.update({ status: "processing", startedAt: new Date().toISOString() });
+    await fileRef.update({ processingStatus: "processing" });
+
+    const extraction = await extractDocument({ buffer, mimeType, fileId, studentId });
+    const extractionRef = adminDb().collection(Collections.extractions).doc(extraction.id);
+    await extractionRef.set(extraction);
+
+    const failed = extraction.chapters.length === 0;
+    const needsReview = extraction.uncertainty.length > 0 || failed;
+    const status = failed ? "failed" : needsReview ? "requires_review" : "completed";
+
+    await fileRef.update({
+      processingStatus: status,
+      totalPages: extraction.totalPages,
+      extractedAt: new Date().toISOString(),
+      extractionId: extraction.id,
+      errorMessage: failed ? extraction.warnings.join(" ") : null,
+      unreadablePages: [],
+    });
+    await jobRef.update({
+      status,
+      finishedAt: new Date().toISOString(),
+      errorMessage: failed ? extraction.warnings.join(" ") : null,
+    });
+
+    await notifyStudent({
+      studentId,
+      type: failed ? "file_failed" : "file_processed",
+      title: failed ? "File processing failed" : "File ready",
+      body: failed
+        ? "We could not extract readable content. You can retry processing."
+        : needsReview
+          ? "Your file was processed with some uncertainty. Review the extraction before planning."
+          : "Your material is ready for study plan generation.",
+      link: "/library",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Processing failed";
+    await fileRef.update({ processingStatus: "failed", errorMessage: message });
+    await jobRef.update({
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      errorMessage: message,
+    });
+    await notifyStudent({
+      studentId,
+      type: "file_failed",
+      title: "File processing failed",
+      body: message,
+      link: "/library",
+    });
+  } finally {
+    processing.delete(fileId);
+  }
+}
+
+async function retryFile(studentId, fileId) {
+  const snap = await adminDb().collection(Collections.uploadedFiles).doc(fileId).get();
+  if (!snap.exists || snap.data()?.studentId !== studentId) {
+    throw new ApiError("NOT_FOUND", "File not found.", 404);
+  }
+  const file = snap.data();
+  const [buf] = await adminBucket().file(file.storagePath).download();
+  const jobRef = adminDb().collection(Collections.fileProcessingJobs).doc();
+  await jobRef.set({
+    fileId,
+    studentId,
+    status: "queued",
+    createdAt: new Date().toISOString(),
+    startedAt: null,
+    finishedAt: null,
+    errorMessage: null,
+    originalName: file.originalName,
+  });
+  await snap.ref.update({ processingStatus: "queued", errorMessage: null });
+  void processFileJob(jobRef.id, fileId, studentId, buf, file.mimeType);
+}
+
+async function listFiles(studentId) {
+  const snap = await adminDb()
+    .collection(Collections.uploadedFiles)
+    .where("studentId", "==", studentId)
+    .orderBy("createdAt", "desc")
+    .limit(100)
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+async function getFile(studentId, fileId) {
+  const snap = await adminDb().collection(Collections.uploadedFiles).doc(fileId).get();
+  if (!snap.exists || snap.data()?.studentId !== studentId) {
+    throw new ApiError("NOT_FOUND", "File not found.", 404);
+  }
+  return { id: snap.id, ...snap.data() };
+}
+
+async function getExtraction(studentId, fileId) {
+  const file = await getFile(studentId, fileId);
+  if (!file.extractionId) return null;
+  const snap = await adminDb().collection(Collections.extractions).doc(file.extractionId).get();
+  if (!snap.exists) return null;
+  return snap.data();
+}
+
+async function deleteFile(studentId, fileId) {
+  const file = await getFile(studentId, fileId);
+  try {
+    await adminBucket().file(file.storagePath).delete();
+  } catch {
+    // storage may be unavailable
+  }
+  await adminDb().collection(Collections.uploadedFiles).doc(fileId).delete();
+}
+
+async function listAllJobs() {
+  const snap = await adminDb()
+    .collection(Collections.fileProcessingJobs)
+    .orderBy("createdAt", "desc")
+    .limit(100)
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+module.exports = {
+  uploadStudentFile,
+  processFileJob,
+  retryFile,
+  listFiles,
+  getFile,
+  getExtraction,
+  deleteFile,
+  listAllJobs,
+};
