@@ -56,6 +56,19 @@
     return node;
   }
 
+  // Inline <script> tags inserted via innerHTML are NOT executed by browsers,
+  // so page handlers would never attach. Re-create each script node so it runs.
+  function execScripts(root) {
+    if (!root) return;
+    Array.from(root.querySelectorAll("script")).forEach((old) => {
+      const s = document.createElement("script");
+      if (old.src) s.src = old.src;
+      else s.text = old.text;
+      if (old.type) s.type = old.type;
+      old.parentNode.replaceChild(s, old);
+    });
+  }
+
   async function loadSession() {
     try {
       const data = await api("/api/auth/me");
@@ -150,6 +163,7 @@
     document.body.appendChild(shell);
     const content = qs("#content", shell);
     if (contentNode) content.appendChild(contentNode);
+    execScripts(content);
 
     qs("#logoutBtn", shell).addEventListener("click", async () => {
       await api("/api/auth/logout", { method: "POST" }).catch(() => null);
@@ -1117,6 +1131,7 @@
         document.body.innerHTML = UI.spinner();
         html = await match.handler();
         document.body.innerHTML = html;
+        execScripts(document.body);
       } else {
         // load notifications count for badge
         try {

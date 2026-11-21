@@ -8,3 +8,4 @@
 - Arabic is RTL; English is LTR. Persist language in the `study_lang` cookie.
 - Study hours come only from recorded sessions and completed tasks.
 - Never invent page numbers or silently reschedule a confirmed plan.
+- Frontend note: page HTML is injected via `innerHTML`; inline `<script>` tags in that HTML do NOT auto-run. After any `innerHTML` render, call `execScripts(root)` to attach page handlers.
