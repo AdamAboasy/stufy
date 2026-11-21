@@ -939,6 +939,10 @@
           <label class="flex gap-2" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="set-adminonly" ${s.adminOnly ? "checked" : ""}> ${t("settings.adminOnlyHint") || "Admin only — access restricted to the manager"}</label>
           <span class="hint">${t("settings.adminOnlyDesc") || "When on, only admins can sign in or register. Regular students are blocked."}</span>
         </div>
+        <div class="field"><label>${t("settings.autoLogin") || "Auto sign-in"}</label>
+          <label class="flex gap-2" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="set-autologin" ${s.autoLogin ? "checked" : ""}> ${t("settings.autoLoginHint") || "Open straight into the admin panel without sign-in"}</label>
+          <span class="hint">${t("settings.autoLoginDesc") || "When on, anyone opening the app is signed in as the manager automatically."}</span>
+        </div>
         <div class="field"><label>${t("subscription.maxFileSizeMb", { maxFileSizeMb: s.maxFileSizeMb }) || "Max file size (MB)"}</label><input type="number" class="input" id="set-max" value="${s.maxFileSizeMb}"></div>
         <div class="field"><label>Subscription reminder (days)</label><input type="number" class="input" id="set-reminder" value="${s.subscriptionReminderDays}"></div>
         <div class="field"><label>${t("common.confirm")}</label>
@@ -947,7 +951,7 @@
         <button class="btn btn-primary" id="set-save">${t("common.save")}</button>
       </div>
       <script>
-        (function(){ document.getElementById("set-save").addEventListener("click",function(){ api("/api/admin/settings",{method:"PATCH",body:{adminOnly:document.getElementById("set-adminonly").checked,maxFileSizeMb:Number(document.getElementById("set-max").value),subscriptionReminderDays:Number(document.getElementById("set-reminder").value),allowRegistrations:document.getElementById("set-reg").checked}}).then(function(){UI.toast("Saved","success");}).catch(function(e){UI.toast(e.message,"error");}); }); })();
+        (function(){ document.getElementById("set-save").addEventListener("click",function(){ api("/api/admin/settings",{method:"PATCH",body:{adminOnly:document.getElementById("set-adminonly").checked,autoLogin:document.getElementById("set-autologin").checked,maxFileSizeMb:Number(document.getElementById("set-max").value),subscriptionReminderDays:Number(document.getElementById("set-reminder").value),allowRegistrations:document.getElementById("set-reg").checked}}).then(function(){UI.toast("Saved","success");}).catch(function(e){UI.toast(e.message,"error");}); }); })();
       <\/script>
     `;
   }

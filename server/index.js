@@ -340,7 +340,17 @@ app.post("/api/auth/logout", (_req, res) => {
 
 app.get("/api/auth/me", async (req, res) => {
   try {
-    const user = await requireUser(req);
+    let user = await getSessionUser(req);
+    // Auto-login mode: open straight into the admin panel with no sign-in step.
+    if (!user && (await accessService.isAutoLogin())) {
+      const auto = await accessService.autoSignInAdmin();
+      if (auto) {
+        const session = await signSession(auto.user);
+        setCookie(res, SESSION_COOKIE, session, sessionCookieOptions());
+        user = auto.user;
+      }
+    }
+    if (!user) throw new ApiError("UNAUTHENTICATED", "Please sign in.", 401);
     if (user.role === "admin") {
       const snap = await adminDb().collection(Collections.admins).doc(user.uid).get();
       send(res, jsonOk({ user, profile: snap.exists ? snap.data() : null, subscription: null }));
@@ -1116,7 +1126,10 @@ app.patch("/api/admin/settings", async (req, res) => {
     if (body.adminOnly !== undefined) {
       await accessService.setAdminOnly(body.adminOnly, admin);
     }
-    const { adminOnly, ...rest } = body;
+    if (body.autoLogin !== undefined) {
+      await accessService.setAutoLogin(body.autoLogin, admin);
+    }
+    const { adminOnly, autoLogin, ...rest } = body;
     await adminDb().collection(Collections.systemSettings).doc("default").set(rest, { merge: true });
     await logsService.writeLog({
       actorId: admin.uid,

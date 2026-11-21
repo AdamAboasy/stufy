@@ -240,7 +240,10 @@
     "daily": "Preferred daily study time",
     "adminOnly": "Access mode",
     "adminOnlyHint": "Admin only — access restricted to the manager",
-    "adminOnlyDesc": "When on, only admins can sign in or register. Regular students are blocked."
+    "adminOnlyDesc": "When on, only admins can sign in or register. Regular students are blocked.",
+    "autoLogin": "Auto sign-in",
+    "autoLoginHint": "Open straight into the admin panel without sign-in",
+    "autoLoginDesc": "When on, anyone opening the app is signed in as the manager automatically."
   },
   "subscription": {
     "title": "Subscription",

@@ -58,11 +58,12 @@ plan code that the manager generates and approves. The code can be changed with
 code **`27022010`** as the password and sign in. If the account does not exist yet it is created
 for you automatically, and you land in the admin panel directly.
 
-### Admin-only mode
+### Admin-only mode & auto sign-in
 
-The app ships with **admin-only mode enabled**: only admins/managers can sign in or register, and
-all student endpoints are blocked. Toggle it off from **Admin → Settings → Access mode** when you
-want to admit students again.
+The app ships with **admin-only mode** and **auto sign-in** enabled: opening the app signs you
+in as the manager automatically — no registration, code, or password needed — and lands you in
+the admin panel. All student endpoints are blocked. Both toggles are available from
+**Admin → Settings** when you want to change this later.
 
 ## Project structure
 
