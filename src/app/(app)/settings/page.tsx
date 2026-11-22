@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { ACADEMIC_COPY, LEVEL_LABELS, gradesFor } from "@/lib/academics";
+import { ACADEMIC_COPY, LEVEL_LABELS, academicDetailsError, gradesFor } from "@/lib/academics";
 import { useAcademicOptions } from "@/lib/academic-options";
 import { updateAcademicProfile, useProfile } from "@/lib/data";
 import { useI18n, type Key, type Lang } from "@/lib/i18n";
@@ -60,7 +60,7 @@ export default function SettingsPage() {
 
   async function onSaveAcademic(event: FormEvent) {
     event.preventDefault();
-    if (!user?.uid || !educationLevel) { setAcademicError(true); return; }
+    if (!user?.uid || !educationLevel || academicDetailsError({ educationLevel, academicGrade, otherAcademicLevel })) { setAcademicError(true); return; }
     setAcademicSaved(false);
     setAcademicError(false);
     try {
@@ -94,7 +94,7 @@ export default function SettingsPage() {
             {LEVELS.map((level) => <option key={level} value={level}>{LEVEL_LABELS[lang][level]}</option>)}
           </select>
         </div>
-        {grades.length ? <div className="field"><label htmlFor="profile-grade">{copy.grade}</label><select id="profile-grade" className="input" value={academicGrade} onChange={(e) => setAcademicGrade(e.target.value)}><option value="">{copy.select}</option>{grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></div> : null}
+        {grades.length ? <div className="field"><label htmlFor="profile-grade">{copy.grade}</label><select id="profile-grade" className="input" required value={academicGrade} onChange={(e) => setAcademicGrade(e.target.value)}><option value="">{copy.select}</option>{grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></div> : null}
         {educationLevel === "university" ? <div className="grid-2"><div className="field"><label htmlFor="profile-university">{copy.universityName}</label><input id="profile-university" className="input" value={universityName} onChange={(e) => setUniversityName(e.target.value)} /></div><div className="field"><label htmlFor="profile-faculty">{copy.faculty}</label><input id="profile-faculty" className="input" value={faculty} onChange={(e) => setFaculty(e.target.value)} /></div><div className="field"><label htmlFor="profile-academic-year">{copy.academicYear}</label><input id="profile-academic-year" className="input" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} /></div></div> : null}
         {educationLevel === "other" ? <div className="field"><label htmlFor="profile-other">{copy.otherLevel}</label><input id="profile-other" className="input" value={otherAcademicLevel} onChange={(e) => setOtherAcademicLevel(e.target.value)} required /></div> : null}
         {academicSaved ? <div className="alert alert-success">{t("saved")}</div> : null}

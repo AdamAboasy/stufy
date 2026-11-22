@@ -5,6 +5,20 @@ export type AcademicOption = { value: string; label: string };
 export type SchoolGradeLevel = "primary" | "preparatory" | "secondary";
 export type GradeOptions = Record<Language, Record<SchoolGradeLevel, string[]>>;
 
+export type AcademicDetails = {
+  educationLevel?: EducationLevel | "";
+  academicGrade?: string;
+  otherAcademicLevel?: string;
+};
+
+/** New registrations must select their stage and (where applicable) a grade. */
+export function academicDetailsError(details: AcademicDetails): "level" | "grade" | "other" | null {
+  if (!details.educationLevel) return "level";
+  if (["primary", "preparatory", "secondary"].includes(details.educationLevel) && !details.academicGrade?.trim()) return "grade";
+  if (details.educationLevel === "other" && !details.otherAcademicLevel?.trim()) return "other";
+  return null;
+}
+
 /** Defaults are centralized so an administrator-managed Firestore config can replace them later. */
 export const ACADEMIC_OPTIONS: Record<EducationLevel, AcademicOption> = {
   primary: { value: "primary", label: "Primary School / المرحلة الابتدائية" },
