@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test src/lib/planner.test.ts",
+    "test": "node --test src/lib/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

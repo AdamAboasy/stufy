@@ -11,6 +11,7 @@ import { useI18n, type Key } from "@/lib/i18n";
 
 const NAV: Array<{ href: string; label: Key }> = [
   { href: "/dashboard", label: "navDashboard" },
+  { href: "/library", label: "navLibrary" },
   { href: "/subjects", label: "navSubjects" },
   { href: "/plan", label: "navPlan" },
   { href: "/tasks", label: "navTasks" },
@@ -19,7 +20,7 @@ const NAV: Array<{ href: string; label: Key }> = [
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { t } = useI18n();
-  const { user, loading, configured } = useAuth();
+  const { user, role, loading, configured } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -39,7 +40,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     return <div className="spinner-wrap">{t("loading")}</div>;
   }
 
-  const links = NAV.map((item) => (
+  const visibleNav = role === "super_admin" ? [...NAV, { href: "/admin", label: "navAdmin" as Key }] : NAV;
+  const links = visibleNav.map((item) => (
     <Link
       key={item.href}
       href={item.href}

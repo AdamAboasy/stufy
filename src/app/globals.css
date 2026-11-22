@@ -1,15 +1,15 @@
 :root {
-  --bg: #f4f7fe;
+  --bg: #F5F7FC;
   --surface: #ffffff;
   --surface-2: #eef2fb;
   --border: #dbe3f4;
   --text: #0f1b3d;
   --muted: #5b6785;
-  --brand: #1d4ed8;
-  --brand-strong: #1e3fae;
-  --brand-soft: #e3ebff;
-  --accent: #fbbf24;
-  --accent-text: #3b2a00;
+  --brand: #5268E8;
+  --brand-strong: #3f54d2;
+  --brand-soft: #e8ebff;
+  --accent: #7957D5;
+  --accent-text: #ffffff;
   --danger: #dc2626;
   --danger-soft: #fee2e2;
   --success: #16a34a;
@@ -21,15 +21,15 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #070d1f;
-    --surface: #0f1936;
-    --surface-2: #14224a;
-    --border: #22325f;
+    --bg: #101522;
+    --surface: #1A2233;
+    --surface-2: #222c40;
+    --border: #303b51;
     --text: #eaf0ff;
     --muted: #9aa8cc;
-    --brand: #4f7cff;
-    --brand-strong: #6b92ff;
-    --brand-soft: #172a63;
+    --brand: #5268E8;
+    --brand-strong: #7c8cf4;
+    --brand-soft: #26315a;
     --danger-soft: #3a1416;
     --success-soft: #11321d;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
@@ -38,15 +38,15 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #070d1f;
-  --surface: #0f1936;
-  --surface-2: #14224a;
-  --border: #22325f;
+  --bg: #101522;
+  --surface: #1A2233;
+  --surface-2: #222c40;
+  --border: #303b51;
   --text: #eaf0ff;
   --muted: #9aa8cc;
-  --brand: #4f7cff;
-  --brand-strong: #6b92ff;
-  --brand-soft: #172a63;
+  --brand: #5268E8;
+  --brand-strong: #7c8cf4;
+  --brand-soft: #26315a;
   --danger-soft: #3a1416;
   --success-soft: #11321d;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
@@ -564,4 +564,107 @@ code,
   display: grid;
   place-items: center;
   color: var(--muted);
+}
+
+
+/* ---------- Academic profile, lesson cards, and private material library ---------- */
+.academic-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.academic-fields legend {
+  padding: 0 8px;
+  font-weight: 700;
+}
+
+.lesson-card {
+  align-items: flex-start;
+}
+
+.lesson-description {
+  margin: 6px 0 0;
+}
+
+.status-pill {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.status-pill[data-status="completed"],
+.status-completed {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.status-pill[data-status="delayed"],
+.status-failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.upload-dropzone {
+  align-items: center;
+  justify-content: center;
+  min-height: 190px;
+  border-style: dashed;
+  text-align: center;
+}
+
+.upload-dropzone.is-dragging {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.file-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pdf-preview {
+  display: block;
+  width: 100%;
+  height: min(70vh, 760px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.lesson-date-input {
+  width: 180px;
+  flex: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 560px) {
+  .lesson-card > .btn {
+    width: 100%;
+  }
+  .lesson-date-input {
+    width: 100%;
+  }
+  .upload-dropzone {
+    min-height: 165px;
+  }
 }
