@@ -48,14 +48,21 @@ firebase deploy --only functions
 
 ### إعداد أول Super Admin
 
-لا توجد صفحة تسجيل عامة للمشرف. بعد إنشاء حساب موثوق والتحقق من UID الخاص به، شغّل أداة bootstrap محليًا في بيئة لها Google Application Default Credentials مخوّلة للمشروع:
+لا توجد صفحة تسجيل عامة للمشرف. بعد إنشاء حساب موثوق، شغّل أداة bootstrap محليًا في بيئة لها Google Application Default Credentials مخوّلة للمشروع. يمكن ترقية المشرف إما بـUID مباشرًا أو بالبريد الإلكتروني:
+
+```bash
+export SUPER_ADMIN_EMAIL="adam.sherif.aboasy@gmail.com"
+npm run bootstrap-admin --prefix functions
+```
+
+أو باستخدام UID مباشر:
 
 ```bash
 export SUPER_ADMIN_UID="<existing-firebase-auth-uid>"
 npm run bootstrap-admin --prefix functions
 ```
 
-الأداة تضيف custom claim وتحدّث ملف Firestore. يجب على المستخدم تحديث Firebase ID token لتظهر الصلاحية. احتفظ بـUID واعتماد Google في بيئة موثوقة، ولا تضع بيانات الاعتماد في المتصفح أو المستودع.
+الأداة تبحث عن الحساب حسب البريد (عند استخدام `SUPER_ADMIN_EMAIL`) أو تستخدم الـUID مباشرة، ثم تضيف custom claim وتحدّث ملف Firestore. يجب على المستخدم تحديث Firebase ID token لتظهر الصلاحية. احتفظ بالبريد واعتماد Google في بيئة موثوقة، ولا تضع بيانات الاعتماد في المتصفح أو المستودع.
 
 ## التشغيل والاختبارات
 

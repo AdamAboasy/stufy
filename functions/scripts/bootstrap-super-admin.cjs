@@ -4,13 +4,22 @@ const { FieldValue, getFirestore } = require("firebase-admin/firestore");
 
 async function main() {
   const uid = process.env.SUPER_ADMIN_UID;
-  if (!uid) throw new Error("Set SUPER_ADMIN_UID to the existing Firebase Auth UID to promote.");
+  const email = process.env.SUPER_ADMIN_EMAIL;
+  if (!uid && !email) throw new Error("Set SUPER_ADMIN_UID or SUPER_ADMIN_EMAIL to promote an administrator.");
+  if (uid && email) throw new Error("Provide only one of SUPER_ADMIN_UID or SUPER_ADMIN_EMAIL.");
+
   initializeApp({ projectId: process.env.GCLOUD_PROJECT || "study-managment-45332" });
   const auth = getAuth();
-  const user = await auth.getUser(uid);
-  await auth.setCustomUserClaims(uid, { ...user.customClaims, role: "super_admin" });
-  await getFirestore().doc(`users/${uid}`).set({ uid, role: "super_admin", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-  console.log(`Super Admin claim set for UID ${uid}. The user must refresh their Firebase ID token.`);
+  let targetUid = uid;
+  if (!targetUid) {
+    if (email.trim().length === 0) throw new Error("SUPER_ADMIN_EMAIL must not be empty.");
+    const record = await auth.getUserByEmail(email.trim());
+    targetUid = record.uid;
+  }
+  const user = await auth.getUser(targetUid);
+  await auth.setCustomUserClaims(targetUid, { ...user.customClaims, role: "super_admin" });
+  await getFirestore().doc(`users/${targetUid}`).set({ uid: targetUid, role: "super_admin", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  console.log(`Super Admin claim set for UID ${targetUid}. The user must refresh their Firebase ID token.`);
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
