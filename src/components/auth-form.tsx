@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { LangToggle } from "@/components/lang-toggle";
 import { Logo } from "@/components/logo";
 import { SetupNotice } from "@/components/setup-notice";
-import { ACADEMIC_COPY, LEVEL_LABELS, gradesFor } from "@/lib/academics";
+import { ACADEMIC_COPY, LEVEL_LABELS, academicDetailsError, gradesFor } from "@/lib/academics";
 import { useAcademicOptions } from "@/lib/academic-options";
 import { useAuth } from "@/lib/auth";
 import { useI18n, type Key } from "@/lib/i18n";
@@ -57,7 +57,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (mode === "register" && !educationLevel) {
+    if (mode === "register" && academicDetailsError({ educationLevel, academicGrade, otherAcademicLevel })) {
       setError("academicRequired");
       return;
     }
@@ -104,7 +104,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                     {LEVELS.map((level) => <option key={level} value={level}>{LEVEL_LABELS[lang][level]}</option>)}
                   </select>
                 </div>
-                {grades.length ? <div className="field"><label htmlFor="academic-grade">{copy.grade}</label><select id="academic-grade" className="input" value={academicGrade} onChange={(e) => setAcademicGrade(e.target.value)}><option value="">{copy.select}</option>{grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></div> : null}
+                {grades.length ? <div className="field"><label htmlFor="academic-grade">{copy.grade}</label><select id="academic-grade" className="input" required value={academicGrade} onChange={(e) => setAcademicGrade(e.target.value)}><option value="">{copy.select}</option>{grades.map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></div> : null}
                 {educationLevel === "university" ? <div className="stack"><p className="muted small">{copy.university}</p><div className="field"><label htmlFor="university-name">{copy.universityName}</label><input id="university-name" className="input" value={universityName} onChange={(e) => setUniversityName(e.target.value)} /></div><div className="field"><label htmlFor="faculty">{copy.faculty}</label><input id="faculty" className="input" value={faculty} onChange={(e) => setFaculty(e.target.value)} /></div><div className="field"><label htmlFor="academic-year">{copy.academicYear}</label><input id="academic-year" className="input" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} /></div></div> : null}
                 {educationLevel === "other" ? <div className="field"><label htmlFor="other-level">{copy.otherLevel}</label><input id="other-level" className="input" value={otherAcademicLevel} onChange={(e) => setOtherAcademicLevel(e.target.value)} required /></div> : null}
               </fieldset>

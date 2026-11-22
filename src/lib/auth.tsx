@@ -11,6 +11,7 @@ import {
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { firebaseConfigured, getFirebase } from "./firebase";
+import { academicDetailsError } from "./academics";
 import type { EducationLevel, Role } from "./types";
 
 export type AcademicRegistration = {
@@ -85,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await signInWithEmailAndPassword(requireFirebase().auth, email, password);
       },
       signUp: async (name, email, password, academic, phoneNumber) => {
+        if (academicDetailsError(academic)) throw new Error("academic-profile-incomplete");
         const fb = requireFirebase();
         const credential = await createUserWithEmailAndPassword(fb.auth, email, password);
         const cleanName = name.trim();

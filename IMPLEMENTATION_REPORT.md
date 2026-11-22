@@ -1,8 +1,8 @@
 # Smart Study Planner — Implementation Report
 
 **Repository:** `AdamAboasy/stufy`
-**Working branch:** `feat/role-aware-lesson-planner`
-**Delivery state:** this implementation is for review on the feature branch; Firebase rules/functions and live data were not deployed or changed.
+**Working branch:** `arena/4b208cca-stufy`
+**Delivery state:** this implementation is for review on the active branch; Firebase rules/functions and live data were not deployed or changed.
 
 ## Delivered changes
 
@@ -10,7 +10,7 @@ The existing Next.js/Firebase application was extended in place. Firebase Authen
 
 Role authorization now derives from Firebase Authentication custom claims. New accounts receive the student role from a trusted Auth trigger; a callable role-assignment function requires a Super Admin claim and records changes in an admin-only activity feed. A private bootstrap script provisions the first administrator from an existing Auth UID; no public admin-registration path was added. Reusable permission definitions and claim-gated admin navigation/UI were added.
 
-Registration requires the bilingual academic-year question and offers Primary, Preparatory, Secondary, University, and Other. School-grade choices are bilingual, have defaults, and can be edited by administrators. University fields remain optional; only fields for the selected education level are written. Students can edit academic information in Profile & Settings.
+Registration requires the bilingual academic-year question and offers Primary, Preparatory, Secondary, University, and Other. School-grade choices are bilingual, have defaults, and can be edited by administrators. University fields remain optional; only fields for the selected education level are written. Students can edit academic information in Profile & Settings. Academic selection is enforced by a shared validator (`academicDetailsError`): registration, the registration service, and Profile & Settings all reject incomplete profiles (a school level without a grade, or “Other” without a specified level), so the requirement cannot be bypassed through a stale form state.
 
 The private library supports PDF, DOC, DOCX, JPG/JPEG, PNG, and WEBP uploads with drag/drop and browse, client-side content/type/size checks, upload progress, cancellation, upload retry, PDF preview, processing-state display, backend processing retry where eligible, lesson editing, and confirmed deletion. Storage is owner-scoped and capped at 25 MiB. The backend verifies content signatures and returns five-minute signed read URLs. Text PDFs are extracted with source-page markers and can be analyzed by Gemini into lessons, chapters, dependencies, and separately classified subtopics/exercises/revision sections. Duplicates, uncertain sections, invalid page references, truncation, missing selectable text, and partial extraction produce review warnings rather than silent success.
 
@@ -25,14 +25,14 @@ The Super Admin view provides a student directory with name/phone search, educat
 - **New `users/{uid}/files/{fileId}`:** private upload metadata and backend-owned processing state/results.
 - **New `configuration/academic`:** administrator-managed bilingual school-grade choices; readable during registration, writable only by a Super Admin claim.
 - **New `activityLogs/{logId}`:** server-written role changes, readable only by Super Admin claims.
-- **Firebase Storage `users/{uid}/files/{fileId}`:** owner-only read/write/delete; MIME and 25 MiB limits in rules, with server-side signature validation.
+- **Firebase Storage `users/{uid}/files/{fileId}`:** owner-only read/create/delete; MIME and 25 MiB limits in rules, with server-side signature validation. Uploaded objects are immutable after creation (`allow update: if false`), so a processed file can never be silently replaced under the same record; replacements must upload a new file and record.
 
-Firestore rules protect profile role fields, prevent client writes to processing results/activity logs, and keep user records owner-scoped. Function authorization and database/storage rules were edited locally only; they were **not deployed**.
+Firestore rules protect profile role fields, prevent client writes to processing results/activity logs, and keep user records owner-scoped. File records are schema-checked at create/update: the allowed key set is enforced, `id`/`studentId`/`storagePath` must match the authenticated owner and the collection path, `originalName` is length-bounded, `fileType` must be one of the seven supported MIME values, and `fileSize` must be a positive integer within the 25 MiB limit. Function authorization and database/storage rules were edited locally only; they were **not deployed**.
 
 ## Validation performed
 
-- `npm run typecheck` — passed.
-- `npm test` — 18 tests passed (planner, dependency handling and edited-plan validation, unique progress, academic options, permissions, and legacy page-planner coverage).
+- `npm run typecheck` — passed (root TypeScript project, no errors).
+- `npm test` — 19 tests passed (planner, dependency handling and edited-plan validation, unique progress, academic options and academic-profile validation, permissions, and legacy page-planner coverage).
 - `npm run build` — passed; all listed Next.js routes, including `/admin` and `/library`, generated successfully.
 - `npm run build --prefix functions` — passed.
 - `npm test --prefix functions` — 4 content-signature/DOCX validation tests passed.
