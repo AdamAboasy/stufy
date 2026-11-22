@@ -1,11 +1,10 @@
-# Study agent notes
+# Study Management — agent notes
 
-- Source of truth: the Smart Study Planner specification in the project brief.
-- Architecture: static HTML/CSS/JS frontend in `public/`, Node.js (Express) backend in `server/`. No React, no build step.
-- Do not put secrets in client code. Sensitive writes go through `/api` + Admin SDK.
-- Local development uses `.data/` when `USE_LOCAL_BACKEND=true`.
-- Production uses Firebase Auth, Firestore, and Storage with the rules in `firebase/`.
-- Arabic is RTL; English is LTR. Persist language in the `study_lang` cookie.
-- Study hours come only from recorded sessions and completed tasks.
-- Never invent page numbers or silently reschedule a confirmed plan.
-- Frontend note: page HTML is injected via `innerHTML`; inline `<script>` tags in that HTML do NOT auto-run. After any `innerHTML` render, call `execScripts(root)` to attach page handlers.
+- Stack: Next.js (App Router) + TypeScript + Firebase client SDK (Auth + Firestore). No Express, no `firebase-admin`, no custom server.
+- Firebase is only touched from the browser (effects / handlers) through `getFirebase()` in `src/lib/firebase.ts`. It returns `null` when the `NEXT_PUBLIC_FIREBASE_*` variables are missing; the UI then shows a setup notice instead of crashing.
+- Data lives under `users/{uid}/subjects` and `users/{uid}/tasks`. Rules are in `firebase/firestore.rules` (owner-only access).
+- The planner (`src/lib/planner.ts`) must keep covering every page exactly once and never create empty days. Run `npm test` after changing it.
+- Never silently reschedule: replacing a plan requires user confirmation, and completed tasks are never deleted.
+- Study time and progress come only from tasks marked done.
+- All user-facing text goes through `src/lib/i18n.tsx` (Arabic RTL default, English LTR). Add every new key to both languages.
+- Keep dependencies minimal (firebase, next, react, react-dom).

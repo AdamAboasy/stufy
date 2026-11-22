@@ -1,108 +1,70 @@
-# Study — Smart Study Planner
+# إدارة المذاكرة — Study Management
 
-A complete **HTML / CSS / vanilla JavaScript** study-planning SaaS, served by a lightweight
-**Node.js (Express)** backend. No React, no Next.js, no build step.
+تطبيق لتنظيم المذاكرة: ضيف موادك، اختار ميعاد الامتحان وأيام الراحة، وخد جدول يومي بالصفحات المطلوبة بالظبط.
 
-Upload educational materials (PDF / Word / images), and Study extracts the structure,
-pages, and topics, then builds a realistic, page-accurate study plan that respects rest
-days, routines, and your daily study time.
+- **التقنية:** Next.js (App Router) + TypeScript + Firebase (Authentication و Firestore) من المتصفح مباشرة.
+- **مفيش سيرفر منفصل ولا `firebase-admin`**، فبيشتغل على Vercel من غير مشاكل.
+- **اللغات:** عربي (RTL) وإنجليزي، ووضع فاتح/داكن.
+- **الخطة:** كل صفحة بتتغطى مرة واحدة بالظبط، وأيام الراحة بتتحترم، ومفيش جدول بيتغير من نفسه (الاستبدال بيحصل بتأكيد منك، والمهام المكتملة ما بتتمسحش).
 
-## Features
+## الصفحات
 
-- **Auth**: phone + password sign-in, activation-code onboarding, device locking, password recovery.
-- **Library**: upload materials, automatic extraction with chapter/topic detection and LLM enrichment.
-- **Plans**: generate a day-by-day study plan, recalculate the schedule, start/complete sessions.
-- **Tasks / Calendar / Routine**: today's tasks, a per-day calendar view, and routine blocks that plans never overlap.
-- **Statistics**: completion, weekly study time, pages, progress by subject.
-- **Subscriptions**: weekly / monthly / quarterly / yearly activation codes, renewals, suspension.
-- **Admin panel**: overview, students, activation codes (generate / reveal / revoke), subscriptions, device requests, file jobs, activity logs, platform settings.
-- **i18n**: Arabic (RTL) and English, toggled live.
-- **Themes**: light / dark / system.
+| الصفحة | الوظيفة |
+|---|---|
+| `/` | الصفحة الرئيسية |
+| `/login` و `/register` | تسجيل الدخول وإنشاء حساب (بريد + كلمة مرور) |
+| `/dashboard` | تقدمك، مهام النهاردة، المتأخر، والجاي |
+| `/subjects` | إضافة المواد (الاسم، عدد الصفحات، ميعاد الامتحان، اللون) |
+| `/plan` | توليد الخطة ومعاينتها وحفظها |
+| `/tasks` | كل المهام مع فلاتر، وتعليم المهمة كمكتملة |
+| `/settings` | اللغة، المظهر، الاسم، تسجيل الخروج |
 
-## Tech stack
+## الإعداد
 
-- **Frontend**: plain HTML, CSS, and JavaScript (single-page app with client-side routing).
-- **Backend**: Node.js + Express. All API routes live in [`server/index.js`](server/index.js).
-- **Storage**: local file-backed store under `.data/` (no external services required). The
-  same service layer mirrors Firestore collections, so it can be pointed at live Firebase.
-- **AI**: deterministic document extraction (`unpdf` + `mammoth`), optional LLM enrichment via
-  OpenAI/Gemini if `OPENAI_API_KEY` / `GEMINI_API_KEY` is set.
+### 1) Firebase (مرة واحدة)
 
-## Getting started
+1. من [Firebase console](https://console.firebase.google.com) افتح مشروعك (`study-managment-45332`).
+2. **Build ← Authentication ← Sign-in method** وفعّل **Email/Password**.
+3. **Build ← Firestore Database** واعمل قاعدة بيانات لو مش موجودة.
+4. **Firestore ← Rules**: الصق محتوى [`firebase/firestore.rules`](firebase/firestore.rules) واضغط Publish.
+   (كل طالب بيقرا ويكتب بياناته هو بس.)
+5. **Project settings ← Your apps**: أضف تطبيق **Web** وانسخ القيم (`apiKey`, `appId`, `messagingSenderId`).
+6. **Authentication ← Settings ← Authorized domains**: أضف دومين Vercel بتاعك (مثلاً `stufy-rho.vercel.app`).
+
+### 2) متغيرات البيئة
+
+انسخ `.env.example` إلى `.env.local` للتشغيل المحلي، وضيف نفس المتغيرات في **Vercel ← Settings ← Environment Variables**:
+
+```
+NEXT_PUBLIC_FIREBASE_API_KEY
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+NEXT_PUBLIC_FIREBASE_PROJECT_ID
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+NEXT_PUBLIC_FIREBASE_APP_ID
+```
+
+دي مفاتيح عامة مش أسرار، والحماية الحقيقية من قواعد Firestore. بعد إضافتها اعمل **Redeploy**. من غيرها التطبيق بيفتح ويعرض رسالة بتقولك إيه اللي ناقص بدل ما يقع.
+
+## التشغيل المحلي
 
 ```bash
 npm install
-npm run dev
+npm run dev        # http://localhost:3000
+npm test           # اختبارات منطق الجدول
+npm run build
 ```
 
-Then open <http://localhost:3000>.
-
-### Default accounts (local backend)
-
-| Role | Phone | Password |
-|---|---|---|
-| Super Admin | `+201000000000` | `Admin@123456` |
-
-The bootstrap also creates one demo activation code per plan type on first run (logged to
-the console).
-
-### Master admin code
-
-Entering the master code **`27022010`** at the activation step creates an **admin / manager**
-account instead of a student account. Only the manager holds this code — it is never listed in
-the admin's code panel and is not a subscription code. Regular users can only get access with a
-plan code that the manager generates and approves. The code can be changed with
-`ADMIN_ACTIVATION_CODE` in the environment.
-
-**Manager sign-in (fast path):** on the sign-in page, enter your **phone number** and the master
-code **`27022010`** as the password and sign in. If the account does not exist yet it is created
-for you automatically, and you land in the admin panel directly.
-
-### Admin-only mode & auto sign-in
-
-The app ships with **admin-only mode** and **auto sign-in** enabled: opening the app signs you
-in as the manager automatically — no registration, code, or password needed — and lands you in
-the admin panel. All student endpoints are blocked. Both toggles are available from
-**Admin → Settings** when you want to change this later.
-
-## Project structure
+## هيكل المشروع
 
 ```
-server/            Express backend
-  index.js         All API routes + static file serving
-  local.js         File-backed Firestore/Auth/Storage emulation
-  db.js            Collection abstraction & helpers
-  session.js       JWT sessions (jose)
-  crypto.js        Code hashing, encryption, tokens
-  config.js        Firebase web config from env
-  services/        auth, codes, plans, routines, stats, subscriptions, devices, files, logs, notifications, planner, extract
-public/           Static frontend (HTML/CSS/JS)
-  index.html       SPA shell
-  css/styles.css   All styling
-  js/i18n.js       Translations loader
-  js/api.js        Fetch wrapper
-  js/ui.js         Icons, toasts, modals, formatters
-  js/app.js        Router + all page renderers
-  locales/         en.json, ar.json
-.data/            Local storage (created at runtime, gitignored)
+src/app/            الصفحات (App Router)
+  (app)/            الصفحات المحمية: dashboard, subjects, plan, tasks, settings
+src/components/     مكونات مشتركة
+src/lib/planner.ts  منطق توليد الجدول (دالة نقية + اختبارات)
+src/lib/data.ts     قراءة/كتابة Firestore
+src/lib/firebase.ts إعداد Firebase (بيشتغل من المتصفح فقط)
+src/lib/i18n.tsx    الترجمة عربي/إنجليزي
+firebase/           قواعد Firestore
+public/             اللوجو
 ```
-
-## Environment
-
-See [`.env.example`](.env.example). The server auto-loads `.env.local`.
-
-- `USE_LOCAL_BACKEND` — `true` (default) uses the file-backed store; `false` requires Firebase Admin credentials.
-- `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY`, and the `NEXT_PUBLIC_FIREBASE_*` vars configure
-  the Firebase web app (`study-managment-45332`).
-- For live Firebase, place `serviceAccount.json` in the project root and set `USE_LOCAL_BACKEND=false`.
-
-## Deployment
-
-The app is a static frontend plus a Node server. Run it with any Node 18+ host:
-
-```bash
-npm start
-```
-
-Serve `public/` from any static host and point it at the Node API, or run the single Node
-process which serves both. No build step is required.
