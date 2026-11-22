@@ -1,30 +1,31 @@
-import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import type { Metadata, Viewport } from "next";
 import { Providers } from "@/components/providers";
-import { LANG_COOKIE } from "@/lib/constants";
-import type { Language } from "@/types";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Stufy — Smart Study Planner",
-  description: "AI-powered study planning for students.",
+  title: "Study Management — إدارة المذاكرة",
+  description: "Plan your study day by day with page-accurate schedules. خطط مذاكرتك يوم بيوم بجدول دقيق للصفحات.",
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const store = await cookies();
-  const lang = (store.get(LANG_COOKIE)?.value === "en" ? "en" : "ar") as Language;
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#1d4ed8",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang={lang} dir={lang === "ar" ? "rtl" : "ltr"} className="h-full antialiased" suppressHydrationWarning>
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap"
           rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap"
         />
       </head>
-      <body className="min-h-full bg-background text-foreground">
-        <Providers lang={lang}>{children}</Providers>
+      <body>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
