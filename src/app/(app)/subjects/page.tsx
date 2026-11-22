@@ -8,7 +8,7 @@ import { formatDate } from "@/lib/dates";
 import { useI18n, type Key } from "@/lib/i18n";
 import type { Subject } from "@/lib/types";
 
-const COLORS = ["#5268E8", "#7957D5", "#16a34a", "#f59e0b", "#ef4444", "#0ea5e9", "#ec4899", "#14b8a6"];
+const COLORS = ["#5268E8", "#7957D5", "#9b5de5", "#ec4899", "#f43f5e", "#fb7c43", "#f5a524", "#10b981", "#14b8a6", "#0ea5e9", "#16a34a", "#84cc16"];
 
 export default function SubjectsPage() {
   const { t, lang } = useI18n();
