@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 // NEXT_PUBLIC_* variables must be referenced literally so Next.js can inline them.
 const config: FirebaseOptions = {
@@ -13,19 +14,15 @@ const config: FirebaseOptions = {
 };
 
 export const firebaseConfigured = Boolean(config.apiKey && config.projectId && config.appId);
-
-export type FirebaseServices = { app: FirebaseApp; auth: Auth; db: Firestore };
+export type FirebaseServices = { app: FirebaseApp; auth: Auth; db: Firestore; storage: FirebaseStorage };
 
 let cached: FirebaseServices | null = null;
 
-/**
- * Returns the Firebase services, or null when the app is not configured.
- * Only call this from the browser (effects / event handlers), never during render on the server.
- */
+/** Returns Firebase services, or null when unconfigured. Call only in the browser. */
 export function getFirebase(): FirebaseServices | null {
   if (!firebaseConfigured) return null;
   if (cached) return cached;
   const app = getApps().length ? getApp() : initializeApp(config);
-  cached = { app, auth: getAuth(app), db: getFirestore(app) };
+  cached = { app, auth: getAuth(app), db: getFirestore(app), storage: getStorage(app) };
   return cached;
 }

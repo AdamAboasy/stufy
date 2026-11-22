@@ -1,70 +1,87 @@
-# إدارة المذاكرة — Study Management
+# إدارة المذاكرة — Smart Study Planner
 
-تطبيق لتنظيم المذاكرة: ضيف موادك، اختار ميعاد الامتحان وأيام الراحة، وخد جدول يومي بالصفحات المطلوبة بالظبط.
+تطبيق لتنظيم المذاكرة باستخدام Firebase: ملفات تعليمية خاصة، وحدات مذاكرة قائمة على الدروس، تخطيط قابل للتعديل، وواجهة عربية RTL / إنجليزية LTR مع الوضعين الفاتح والداكن.
 
-- **التقنية:** Next.js (App Router) + TypeScript + Firebase (Authentication و Firestore) من المتصفح مباشرة.
-- **مفيش سيرفر منفصل ولا `firebase-admin`**، فبيشتغل على Vercel من غير مشاكل.
-- **اللغات:** عربي (RTL) وإنجليزي، ووضع فاتح/داكن.
-- **الخطة:** كل صفحة بتتغطى مرة واحدة بالظبط، وأيام الراحة بتتحترم، ومفيش جدول بيتغير من نفسه (الاستبدال بيحصل بتأكيد منك، والمهام المكتملة ما بتتمسحش).
+- **التقنية:** Next.js App Router + TypeScript + Firebase Authentication وFirestore وStorage، مع Firebase Cloud Functions للإجراءات الموثوقة ومعالجة الملفات.
+- **الصلاحيات:** الدور الإداري يُقرأ من Firebase Authentication custom claims فقط؛ بيانات الدور في Firestore للعرض وليست مصدر صلاحية. لا يوجد تسجيل عام للمشرفين.
+- **البيانات القديمة:** تظل سجلات المهام والصفحات القديمة محفوظة للتوافق؛ الشاشات الرئيسية الجديدة تعرض الدروس كمقياس أساسي.
+- **حدود المعالجة الحالية:** تحليل النص متاح لملفات PDF النصية عند إعداد مفتاح Gemini. ملفات PDF الممسوحة أو قليلة النص تُحوّل إلى «تحتاج مراجعة» لعدم وجود OCR مهيأ. ملفات DOC/DOCX والصور تُحفظ بشكل خاص لكن استخراج الدروس الآلي لها غير مفعّل بعد.
 
 ## الصفحات
 
 | الصفحة | الوظيفة |
 |---|---|
 | `/` | الصفحة الرئيسية |
-| `/login` و `/register` | تسجيل الدخول وإنشاء حساب (بريد + كلمة مرور) |
-| `/dashboard` | تقدمك، مهام النهاردة، المتأخر، والجاي |
-| `/subjects` | إضافة المواد (الاسم، عدد الصفحات، ميعاد الامتحان، اللون) |
-| `/plan` | توليد الخطة ومعاينتها وحفظها |
-| `/tasks` | كل المهام مع فلاتر، وتعليم المهمة كمكتملة |
-| `/settings` | اللغة، المظهر، الاسم، تسجيل الخروج |
+| `/login` و`/register` | تسجيل الدخول والتسجيل مع بيانات المستوى الدراسي |
+| `/dashboard` | إحصاءات الدروس والتقدم والمهام اليومية |
+| `/subjects` | المواد وتقدم الدروس |
+| `/plan` | معاينة وتعديل خطة الدروس وحفظها |
+| `/tasks` | قائمة الدروس وفلاتر الحالة |
+| `/library` | رفع الملفات الخاصة، المعاينة، حالة المعالجة وإدارة الدروس المستخرجة |
+| `/settings` | اللغة والمظهر والاسم والبيانات الدراسية |
+| `/admin` | دليل الطلاب وإدارة الأدوار، للمشرف الموثق فقط |
 
-## الإعداد
+## إعداد Firebase
 
-### 1) Firebase (مرة واحدة)
+1. فعّل **Email/Password** في Firebase Authentication، وأنشئ Firestore وStorage.
+2. أضف تطبيق Web في إعدادات Firebase واضبط متغيرات `.env.local` وفق `.env.example`.
+3. راجع `firebase/firestore.rules` و`firebase/storage.rules` قبل نشر القواعد. قواعد Firestore تقصر بيانات المستخدم على مالكها، وتحمي حقول الدور والمعالجة؛ قواعد Storage تفرض الملكية ونوع الملف والحجم (25 MiB).
+4. ثبّت Firebase CLI وسجّل الدخول ثم اختر المشروع الصحيح، وبعد مراجعة التغييرات انشر القواعد والوظائف عند اعتماد النشر:
 
-1. من [Firebase console](https://console.firebase.google.com) افتح مشروعك (`study-managment-45332`).
-2. **Build ← Authentication ← Sign-in method** وفعّل **Email/Password**.
-3. **Build ← Firestore Database** واعمل قاعدة بيانات لو مش موجودة.
-4. **Firestore ← Rules**: الصق محتوى [`firebase/firestore.rules`](firebase/firestore.rules) واضغط Publish.
-   (كل طالب بيقرا ويكتب بياناته هو بس.)
-5. **Project settings ← Your apps**: أضف تطبيق **Web** وانسخ القيم (`apiKey`, `appId`, `messagingSenderId`).
-6. **Authentication ← Settings ← Authorized domains**: أضف دومين Vercel بتاعك (مثلاً `stufy-rho.vercel.app`).
+   ```bash
+   firebase use study-managment-45332
+   firebase deploy --only firestore:rules,storage,functions
+   ```
 
-### 2) متغيرات البيئة
+   **هذا الأمر للنشر المقصود فقط؛ لم يجرِ نشر أي مورد Firebase ضمن هذا التعديل.**
 
-انسخ `.env.example` إلى `.env.local` للتشغيل المحلي، وضيف نفس المتغيرات في **Vercel ← Settings ← Environment Variables**:
+### تحليل PDF النصي باستخدام Gemini (اختياري)
 
+تحتاج وظيفة تحليل الدروس إلى مفتاح Gemini محفوظ كسرّ Firebase Functions، لا كمتغير عام في الواجهة. عند تهيئته، يُرسل نص PDF المستخرج إلى Google Gemini للتحليل. لأن الوظيفة تربط هذا السر وقت التشغيل، يجب إنشاء السر قبل نشر Functions:
+
+```bash
+firebase functions:secrets:set GEMINI_API_KEY
+firebase deploy --only functions
 ```
-NEXT_PUBLIC_FIREBASE_API_KEY
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-NEXT_PUBLIC_FIREBASE_PROJECT_ID
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-NEXT_PUBLIC_FIREBASE_APP_ID
+
+يمكن ضبط `GEMINI_MODEL` كمتغير بيئة للوظائف؛ الافتراضي `gemini-2.5-flash`. إذا لم يكن المفتاح متاحًا، تحفظ الوظيفة حالة الملف «تحتاج مراجعة» ولا تدّعي اكتمال التحليل. لا يوجد OCR حاليًا، كما أن الاستخراج الآلي لـDOC/DOCX والصور غير مفعّل.
+
+### إعداد أول Super Admin
+
+لا توجد صفحة تسجيل عامة للمشرف. بعد إنشاء حساب موثوق والتحقق من UID الخاص به، شغّل أداة bootstrap محليًا في بيئة لها Google Application Default Credentials مخوّلة للمشروع:
+
+```bash
+export SUPER_ADMIN_UID="<existing-firebase-auth-uid>"
+npm run bootstrap-admin --prefix functions
 ```
 
-دي مفاتيح عامة مش أسرار، والحماية الحقيقية من قواعد Firestore. بعد إضافتها اعمل **Redeploy**. من غيرها التطبيق بيفتح ويعرض رسالة بتقولك إيه اللي ناقص بدل ما يقع.
+الأداة تضيف custom claim وتحدّث ملف Firestore. يجب على المستخدم تحديث Firebase ID token لتظهر الصلاحية. احتفظ بـUID واعتماد Google في بيئة موثوقة، ولا تضع بيانات الاعتماد في المتصفح أو المستودع.
 
-## التشغيل المحلي
+## التشغيل والاختبارات
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
-npm test           # اختبارات منطق الجدول
+npm run dev
+npm test
+npm run typecheck
 npm run build
+npm install --prefix functions
+npm run build --prefix functions
+npm test --prefix functions
 ```
 
-## هيكل المشروع
+## بنية المشروع
 
-```
-src/app/            الصفحات (App Router)
-  (app)/            الصفحات المحمية: dashboard, subjects, plan, tasks, settings
-src/components/     مكونات مشتركة
-src/lib/planner.ts  منطق توليد الجدول (دالة نقية + اختبارات)
-src/lib/data.ts     قراءة/كتابة Firestore
-src/lib/firebase.ts إعداد Firebase (بيشتغل من المتصفح فقط)
-src/lib/i18n.tsx    الترجمة عربي/إنجليزي
-firebase/           قواعد Firestore
-public/             اللوجو
+```text
+src/app/                  صفحات Next.js، بما فيها لوحة الطالب والمكتبة والإدارة
+src/components/           مكونات الواجهة المشتركة
+src/lib/auth.tsx          Firebase Auth وحالة الدور المستمدة من claims
+src/lib/permissions.ts    مصفوفة صلاحيات قابلة للتوسعة
+src/lib/data.ts           عمليات واشتراكات Firestore
+src/lib/lesson-planner.ts جدولة الدروس واختباراتها
+firebase/firestore.rules  قواعد Firestore
+firebase/storage.rules    قواعد تخزين خاصة
+functions/src/            صلاحيات موثوقة ومعالجة الملفات
+functions/scripts/        أداة إعداد المشرف الأول، ليست endpoint عامة
+public/manus-routes.json  بيان مسارات التطبيق
 ```
