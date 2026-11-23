@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 70" fill="none">
+  <defs>
+    <linearGradient id="sdl-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D2FF" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <linearGradient id="sdl-purple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C084FC" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+  </defs>
+
+  <!-- Symbol on Left -->
+  <g transform="translate(0, 5) scale(0.3)">
+    <path d="M100 142 C70 128 42 134 24 146 L24 90 C42 78 70 74 100 86 Z" fill="url(#sdl-blue)" />
+    <path d="M100 142 C130 128 158 134 176 146 L176 90 C158 78 130 74 100 86 Z" fill="url(#sdl-purple)" />
+    <circle cx="100" cy="74" r="40" fill="#0A1128" stroke="url(#sdl-blue)" stroke-width="4.5" />
+    <line x1="100" y1="74" x2="84" y2="58" stroke="#00D2FF" stroke-width="4" stroke-linecap="round" />
+    <line x1="100" y1="74" x2="122" y2="54" stroke="#C084FC" stroke-width="3" stroke-linecap="round" />
+    <circle cx="100" cy="74" r="5" fill="#00D2FF" />
+  </g>
+
+  <!-- Brand Title -->
+  <text x="68" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#FFFFFF">
+    Smart Study
+  </text>
+  <text x="172" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#00D2FF">
+    Planner
+  </text>
+  
+  <!-- Student Portal Badge -->
+  <rect x="68" y="40" width="112" height="18" rx="9" fill="#1E293B" stroke="#00D2FF" stroke-width="1" />
+  <circle cx="78" cy="49" r="3.5" fill="#00D2FF" />
+  <text x="86" y="53" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="700" fill="#93C5FD" letter-spacing="0.5">
+    STUDENT PORTAL
+  </text>
+</svg>

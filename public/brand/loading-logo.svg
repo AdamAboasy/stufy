@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <defs>
+    <linearGradient id="load-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D2FF" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <linearGradient id="load-purple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C084FC" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+    <radialGradient id="load-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00D2FF" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0" />
+    </radialGradient>
+    <filter id="load-blur">
+      <feGaussianBlur stdDeviation="4" />
+    </filter>
+  </defs>
+
+  <style>
+    @keyframes pulseAura {
+      0%, 100% { transform: scale(0.95); opacity: 0.3; }
+      50% { transform: scale(1.15); opacity: 0.7; }
+    }
+    @keyframes spinClock {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .aura { transform-origin: center; animation: pulseAura 2.2s infinite ease-in-out; }
+    .hand-rotate { transform-origin: 100px 74px; animation: spinClock 4s linear infinite; }
+  </style>
+
+  <!-- Pulsing Backdrop Aura -->
+  <circle cx="100" cy="80" r="75" fill="url(#load-glow)" class="aura" />
+
+  <!-- Book Left -->
+  <path d="M100 142 C70 128 42 134 24 146 L24 90 C42 78 70 74 100 86 Z" fill="url(#load-blue)" />
+  <path d="M38 102 C55 94 76 92 92 98" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.85" />
+  <path d="M38 114 C55 106 76 104 92 110" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.6" />
+
+  <!-- Book Right -->
+  <path d="M100 142 C130 128 158 134 176 146 L176 90 C158 78 130 74 100 86 Z" fill="url(#load-purple)" />
+  <path d="M108 98 C124 92 145 94 162 102" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.85" />
+  <path d="M108 110 C124 104 145 106 162 114" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.6" />
+
+  <!-- Spine -->
+  <path d="M100 86 L100 156" stroke="#00D2FF" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Clock Outer Ring -->
+  <circle cx="100" cy="74" r="40" fill="#0A1128" stroke="url(#load-blue)" stroke-width="4.5" />
+  <circle cx="100" cy="74" r="34" fill="#0B132B" />
+
+  <!-- Rotating Minute Hand -->
+  <g class="hand-rotate">
+    <line x1="100" y1="74" x2="100" y2="48" stroke="#00D2FF" stroke-width="3" stroke-linecap="round" />
+  </g>
+  <!-- Static Hour Hand -->
+  <line x1="100" y1="74" x2="86" y2="60" stroke="#C084FC" stroke-width="3.5" stroke-linecap="round" />
+  
+  <circle cx="100" cy="74" r="5" fill="#00D2FF" />
+  <circle cx="100" cy="74" r="2" fill="#FFFFFF" />
+  
+  <!-- Sparks -->
+  <path d="M100 18 L102 24 L108 26 L102 28 L100 34 L98 28 L92 26 L98 24 Z" fill="#00D2FF" />
+</svg>

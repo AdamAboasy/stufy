@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" fill="none">
+  <defs>
+    <linearGradient id="ml-blue-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+    <linearGradient id="ml-purple-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9333EA" />
+      <stop offset="100%" stop-color="#6D28D9" />
+    </linearGradient>
+    <linearGradient id="ml-subtext-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(10, 10) scale(0.5)">
+    <!-- Book Left -->
+    <path d="M100 142 C70 128 42 134 24 146 L24 90 C42 78 70 74 100 86 Z" fill="url(#ml-blue-grad)" />
+    <path d="M38 102 C55 94 76 92 92 98" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.9" />
+    <path d="M38 114 C55 106 76 104 92 110" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.7" />
+    <!-- Book Right -->
+    <path d="M100 142 C130 128 158 134 176 146 L176 90 C158 78 130 74 100 86 Z" fill="url(#ml-purple-grad)" />
+    <path d="M108 98 C124 92 145 94 162 102" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.9" />
+    <path d="M108 110 C124 104 145 106 162 114" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.7" />
+    <!-- Clock Outer -->
+    <circle cx="100" cy="74" r="40" fill="#0A1128" stroke="url(#ml-blue-grad)" stroke-width="4.5" />
+    <circle cx="100" cy="74" r="34" fill="#0F172A" />
+    <!-- Clock Ticks -->
+    <line x1="100" y1="42" x2="100" y2="47" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round" />
+    <line x1="132" y1="74" x2="127" y2="74" stroke="#C084FC" stroke-width="2.5" stroke-linecap="round" />
+    <!-- Hands at 10:10 -->
+    <line x1="100" y1="74" x2="84" y2="58" stroke="#38BDF8" stroke-width="3.5" stroke-linecap="round" />
+    <line x1="100" y1="74" x2="122" y2="54" stroke="#C084FC" stroke-width="2.5" stroke-linecap="round" />
+    <circle cx="100" cy="74" r="4.5" fill="#38BDF8" />
+    <path d="M100 18 L102 24 L108 26 L102 28 L100 34 L98 28 L92 26 L98 24 Z" fill="#0284C7" />
+  </g>
+
+  <!-- Dark Navy Typography for Light BG -->
+  <text x="125" y="52" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="800" letter-spacing="-0.5" fill="#0A1128">
+    Smart Study Planner
+  </text>
+  <text x="126" y="78" font-family="system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif" font-size="13" font-weight="600" fill="url(#ml-subtext-grad)">
+    مخطط الدراسة الذكي • AI-Powered Academic System
+  </text>
+</svg>
