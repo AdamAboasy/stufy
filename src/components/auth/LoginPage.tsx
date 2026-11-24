@@ -35,7 +35,7 @@ export interface LoginPageProps {
     stage?: string;
     gender?: Gender;
     phoneNumber?: string;
-  }) => { success: boolean; error?: string };
+  }) => Promise<{ success: boolean; error?: string }>;
   onGoToActivation: () => void;
   onToggleLanguage?: () => void;
 }
@@ -80,7 +80,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setSuccessMessage(null);
     setLoading(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setLoading(false);
       const cleanEmail = email.trim().toLowerCase();
 
@@ -142,7 +142,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }
 
         // Call parent register handler
-        const result = onRegisterStudent({
+        const result = await onRegisterStudent({
           fullName: fullName.trim(),
           email: cleanEmail,
           password,

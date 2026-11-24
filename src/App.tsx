@@ -20,10 +20,22 @@ import {
   subscribeToStudents,
   saveStudent,
   deleteStudent as deleteStudentCloud,
+  deleteStudentsBatch,
   seedStudentsIfEmpty,
   pushAuditLog,
   checkFirebaseConnection
 } from './lib/firebaseRepo';
+import {
+  withoutDeleted,
+  markDeleted,
+  unmarkDeleted,
+  getDeletedIds,
+  getPendingStudents,
+  queuePendingStudent,
+  removePendingStudent,
+  hasSeededDemo,
+  markSeededDemo
+} from './lib/deletedIds';
 import { initAnalytics } from './lib/firebase';
 import { 
   Users, 
@@ -62,8 +74,19 @@ export const App: React.FC = () => {
     return localStorage.getItem('ssp_admin_auth') === 'true' ? 'students' : 'login';
   });
 
-  // Data State (Firestore is the source of truth; local seed is the offline fallback)
-  const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
+  // Data State (Firestore is the source of truth; local cache is the offline fallback)
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const raw = localStorage.getItem('ssp_students');
+      if (raw) {
+        const cached = JSON.parse(raw) as Student[];
+        if (Array.isArray(cached)) return withoutDeleted(cached);
+      }
+    } catch {
+      /* ignore */
+    }
+    return withoutDeleted(INITIAL_STUDENTS);
+  });
   const [cloudConnected, setCloudConnected] = useState<boolean>(false);
   const [cloudSyncing, setCloudSyncing] = useState<boolean>(true);
   const [cloudError, setCloudError] = useState<string | null>(null);
@@ -90,21 +113,37 @@ export const App: React.FC = () => {
       }
 
       if (online) {
-        // first run: upload the demo students so the dashboard isn't empty
-        await seedStudentsIfEmpty(INITIAL_STUDENTS);
+        // نرفع البيانات التجريبية مرة واحدة فقط في عمر المتصفح — عشان المحذوف ميرجعش
+        if (!hasSeededDemo()) {
+          const pendingOnFirstRun = getPendingStudents<Student>();
+          if (pendingOnFirstRun.length > 0) {
+            await Promise.all(pendingOnFirstRun.map(st => saveStudent(st)));
+            pendingOnFirstRun.forEach(st => removePendingStudent(st.id));
+          }
+          await seedStudentsIfEmpty(withoutDeleted(INITIAL_STUDENTS));
+          markSeededDemo();
+        }
+
+        // أي طالب اتسجل والتطبيق كان أوفلاين: نرفعه دلوقتي
+        const pending = getPendingStudents<Student>();
+        for (const queued of pending) {
+          const result = await saveStudent(queued);
+          if (result.ok) removePendingStudent(queued.id);
+        }
       }
 
       unsubscribe = subscribeToStudents(
         remoteStudents => {
           if (cancelled) return;
-          if (remoteStudents.length > 0) {
-            // Firestore returns an unordered list; keep newest registrations first
-            const sorted = [...remoteStudents].sort(
-              (a, b) => new Date(b.registrationDate).getTime() - new Date(a.registrationDate).getTime()
-            );
-            setStudents(sorted);
-            setCloudConnected(true);
-          }
+          // بنستبعد أي طالب محذوف + اللي لسه في طابور الرفع (مش هنمسحه من الشاشة)
+          const pendingList = getPendingStudents<Student>();
+          const merged = [...pendingList, ...withoutDeleted(remoteStudents)];
+          const unique = Array.from(new Map(merged.map(st => [st.id, st])).values());
+          const sorted = unique.sort(
+            (a, b) => new Date(b.registrationDate).getTime() - new Date(a.registrationDate).getTime()
+          );
+          setStudents(sorted);
+          setCloudConnected(true);
           setCloudSyncing(false);
         },
         error => {
@@ -219,7 +258,7 @@ export const App: React.FC = () => {
   };
 
   // Student Registration Handler: Requires Full Name, Email, Password, Activation Code
-  const handleRegisterStudent = (data: {
+  const handleRegisterStudent = async (data: {
     fullName: string;
     email: string;
     password: string;
@@ -227,7 +266,7 @@ export const App: React.FC = () => {
     stage?: string;
     gender?: Gender;
     phoneNumber?: string;
-  }): { success: boolean; error?: string } => {
+  }): Promise<{ success: boolean; error?: string }> => {
     const cleanCode = data.activationCode.trim().toUpperCase();
     const matchedCode = activationCodes.find(c => c.code.toUpperCase() === cleanCode);
 
@@ -341,9 +380,20 @@ export const App: React.FC = () => {
       ]
     };
 
-    // Add to students list (Instantly visible in Super Admin Monitoring!)
+    // Add to students list immediately (instantly visible in the admin dashboard)
     setStudents(prev => [newStudent, ...prev]);
-    if (cloudConnected) saveStudent(newStudent);
+
+    // Persist to Firestore. If the cloud write fails (offline / rules), keep it in a
+    // local queue so the admin can still see it and it syncs later.
+    const saved = await saveStudent(newStudent);
+    if (!saved.ok) {
+      queuePendingStudent(newStudent);
+      showToast(
+        isArabic
+          ? `تم إنشاء الحساب على هذا الجهاز. (تعذّر الحفظ السحابي: ${saved.error}) — سيتم الرفع تلقائياً عند عودة الاتصال.`
+          : `Account created on this device. (Cloud save failed: ${saved.error}) — it will sync automatically once the connection is back.`
+      );
+    }
 
     // Mark activation code as redeemed
     setActivationCodes(prev => prev.map(c => {
@@ -477,7 +527,7 @@ export const App: React.FC = () => {
       setCurrentStudent(updatedStudent);
       setActiveTab('student_dashboard');
     } else {
-      handleRegisterStudent({
+      void handleRegisterStudent({
         fullName: studentName?.trim() || 'طالب جديد (مخطط الدراسة)',
         email: studentEmail?.trim() || `student_${Date.now()}@example.com`,
         password: 'password123',
@@ -582,9 +632,39 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteStudent = async (student: Student) => {
+    // 1) «شاهد قبر» محلي: الطالب ده مش هيرجع تاني مهما جاء من السيرفر
+    markDeleted(student.id);
+    removePendingStudent(student.id);
+
+    // 2) إخفاء فوري من الواجهة
     setStudents(prev => prev.filter(s => s.id !== student.id));
-    if (cloudConnected) {
-      await deleteStudentCloud(student);
+
+    // 3) حذف من Firestore — لو فشل بنرجّع الطالب ونوضّح السبب
+    const cloudResult = await deleteStudentCloud(student);
+    if (!cloudResult.ok) {
+      unmarkDeleted(student.id);
+      setStudents(prev => [student, ...prev.filter(s => s.id !== student.id)]);
+      setCloudError(
+        isArabic
+          ? `فشل حذف الطالب من السحابة: ${cloudResult.error}. الحذف اتلغى عشان البيانات متضيعش.`
+          : `Cloud deletion failed: ${cloudResult.error}. The delete was rolled back to avoid data loss.`
+      );
+      showToast(
+        isArabic
+          ? `❌ ماقدرتش أحذف (${student.fullNameAr || student.fullName}) من السحابة: ${cloudResult.error}`
+          : `❌ Could not delete (${student.fullName}) from the cloud: ${cloudResult.error}`
+      );
+      return;
+    }
+
+    // 4) اتأكدنا إن المستند مش موجود (مش مجرد إرسال) قبل ما نعلن النجاح
+    const verified = await deleteStudentCloud(student);
+    if (!verified.ok) {
+      setCloudError(
+        isArabic
+          ? `تعذّر التأكد من الحذف: ${verified.error}`
+          : `Could not verify the deletion: ${verified.error}`
+      );
     }
 
     if (currentStudent && currentStudent.id === student.id) {
@@ -613,10 +693,34 @@ export const App: React.FC = () => {
     setAuditLogs(prev => [newAuditLog, ...prev]);
     if (cloudConnected) pushAuditLog(newAuditLog);
 
+    setCloudError(null);
     showToast(
       isArabic
-        ? `تم حذف حساب الطالب (${student.fullNameAr || student.fullName}) نهائياً وتوثيق العملية.`
-        : `Student (${student.fullName}) permanently deleted and logged.`
+        ? `تم حذف حساب الطالب (${student.fullNameAr || student.fullName}) نهائياً من السحابة وتوثيق العملية.`
+        : `Student (${student.fullName}) permanently deleted from the cloud and logged.`
+    );
+  };
+
+  /* ============================================================
+     Cleanup: delete every student flagged as "test" at once
+     ============================================================ */
+  const handleBulkDeleteTestStudents = async (list: Student[]) => {
+    if (list.length === 0) return;
+    list.forEach(st => markDeleted(st.id));
+    setStudents(prev => prev.filter(s => !list.some(d => d.id === s.id)));
+
+    const removed = await deleteStudentsBatch(list);
+    if (removed < list.length) {
+      setCloudError(
+        isArabic
+          ? `تم حذف ${removed} من ${list.length}. الباقي فشل بسبب الصلاحيات — راجع قواعد Firestore.`
+          : `Deleted ${removed} of ${list.length}. The rest failed due to permissions — check your Firestore rules.`
+      );
+    }
+    showToast(
+      isArabic
+        ? `تم حذف ${removed} طالب من السحابة نهائياً.`
+        : `${removed} student(s) permanently deleted from the cloud.`
     );
   };
 
@@ -1113,6 +1217,7 @@ export const App: React.FC = () => {
             cloudConnected={cloudConnected}
             cloudError={cloudError}
             onDeleteStudent={handleDeleteStudent}
+            onBulkDeleteDemo={handleBulkDeleteTestStudents}
           />
         )}
 
