@@ -18,11 +18,8 @@ import {
   FileCheck2, 
   KeyRound, 
   Globe, 
-  LogOut, 
-  Eye, 
-  ShieldCheck, 
-  PlusCircle,
-  Sparkles
+  LogOut,
+  ShieldCheck
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -651,24 +648,6 @@ export const App: React.FC = () => {
                 {auditLogs.length}
               </span>
             </button>
-
-            {/* Student Activation Page Shortcut */}
-            <button
-              onClick={() => setActiveTab('activation_page')}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>{isArabic ? 'صفحة التفعيل' : 'Activation Code'}</span>
-            </button>
-
-            {/* Student View Shortcut (الصفحة الرئيسية للطالب) */}
-            <button
-              onClick={() => setActiveTab('student_dashboard')}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
-            >
-              <Eye className="w-3.5 h-3.5 text-brand-blue-electric" />
-              <span>{isArabic ? 'الصفحة الرئيسية للطالب' : 'Student Home'}</span>
-            </button>
           </nav>
 
           {/* Right Header Tools: Language Switcher, WhatsApp Support, Admin Profile & Logout */}
@@ -730,7 +709,7 @@ export const App: React.FC = () => {
         {activeTab === 'code_generator' && (
           <ActivationCodeGenerator
             isArabic={isArabic}
-            existingCodes={activationCodes}
+            codes={activationCodes}
             students={students}
             onGenerateCode={handleGenerateCode}
             onRevokeCode={handleRevokeCode}
