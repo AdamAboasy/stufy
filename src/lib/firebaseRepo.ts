@@ -72,34 +72,62 @@ export const subscribeToStudents = (
 };
 
 /** إنشاء/تحديث طالب (المستند بيستخدم نفس `id` الداخلي للطالب). */
-export const saveStudent = async (student: Student): Promise<boolean> => {
+export const saveStudent = async (
+  student: Student
+): Promise<{ ok: boolean; error?: string }> => {
   try {
     await setDoc(doc(db, COLLECTIONS.students, student.id), student, { merge: true });
-    return true;
+    return { ok: true };
   } catch (error) {
+    const code = (error as { code?: string })?.code || String(error);
     console.warn('[firebase] saveStudent failed', error);
-    return false;
+    return { ok: false, error: code };
   }
 };
 
-/** حذف طالب نهائياً + حذف ملفات كتبه من Storage. */
-export const deleteStudent = async (student: Student): Promise<boolean> => {
+/**
+ * حذف طالب نهائياً + حذف ملفات كتبه من Storage.
+ * بيرجع { ok, error } عشان الواجهة تعرف تعرض سبب الفشل بدل ما تسكت.
+ */
+export const deleteStudent = async (
+  student: Student
+): Promise<{ ok: boolean; error?: string }> => {
   try {
-    await Promise.all(
-      (student.uploadedPdfs || [])
-        .filter(book => !!book.storagePath)
-        .map(book =>
-          deleteObject(ref(storage, book.storagePath as string)).catch(() => {
-            /* الملف قد يكون محذوف مسبقاً */
-          })
-        )
-    );
     await deleteDoc(doc(db, COLLECTIONS.students, student.id));
-    return true;
   } catch (error) {
+    const code = (error as { code?: string })?.code || String(error);
     console.warn('[firebase] deleteStudent failed', error);
-    return false;
+    return {
+      ok: false,
+      error:
+        code === 'permission-denied'
+          ? 'permission-denied: قواعد Firestore مش بتسمح بالحذف. الصق قواعد firestore.rules في Console → Firestore → Rules → Publish.'
+          : code
+    };
   }
+
+  // الملفات بتتشال بعد المستند (لو فشلت مش مشكلة، المستند اتمسح خلاص)
+  await Promise.all(
+    (student.uploadedPdfs || [])
+      .filter(book => !!book.storagePath)
+      .map(book =>
+        deleteObject(ref(storage, book.storagePath as string)).catch(() => {
+          /* الملف قد يكون محذوف مسبقاً */
+        })
+      )
+  );
+
+  return { ok: true };
+};
+
+/** حذف دفعة طلاب (تنظيف) */
+export const deleteStudentsBatch = async (list: Student[]): Promise<number> => {
+  let removed = 0;
+  for (const student of list) {
+    const result = await deleteStudent(student);
+    if (result.ok) removed++;
+  }
+  return removed;
 };
 
 /** بذّر البيانات الابتدائية لو مجموعة الطلاب فاضية تماماً. */
