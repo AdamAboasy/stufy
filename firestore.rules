@@ -3,56 +3,77 @@ rules_version = '2';
 // ============================================================
 // Smart Study Planner — Firestore security rules
 // نشر: firebase deploy --only firestore:rules
+//
+// ⚠️ الوضع الحالي = «وضع تجريبي مفتوح» عشان التطبيق يشتغل على Cloud
+// من غير Firebase Auth. ده مناسب للتطوير/العرض، ولازم يتقفل قبل
+// الاستخدام الحقيقي (شوف البلوك المشروح في آخر الملف).
+//
+// Current mode = open (unauthenticated) so the app works on the cloud
+// without Firebase Auth. Tighten it before going to production using
+// the commented block at the bottom.
 // ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function role() {
-      return signedIn() ? request.auth.token.role : null;
-    }
-
-    function isSuperAdmin() {
-      return role() == 'SUPER_ADMIN';
-    }
-
-    function isAdmin() {
-      return role() == 'SUPER_ADMIN' || role() == 'STUDENT_ADMIN';
-    }
-
-    function isSelf(studentId) {
-      return signedIn() && (request.auth.uid == studentId || request.auth.token.studentId == studentId);
-    }
-
     // ---- Students ----
     match /students/{studentId} {
-      allow read:   if signedIn() && (isAdmin() || isSelf(studentId));
-      allow create: if signedIn() && (isAdmin() || isSelf(studentId));
-      allow update: if signedIn() && (isAdmin() || isSelf(studentId));
-      // الحذف للسوبر أدمن فقط
-      allow delete: if isSuperAdmin();
+      allow read:   if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
     }
 
-    // ---- Audit trail (append-only) ----
+    // ---- Audit trail (append-only: create allowed, update/delete blocked) ----
     match /auditLogs/{logId} {
-      allow read:   if isAdmin();
-      allow create: if signedIn();
+      allow read:   if true;
+      allow create: if true;
       allow update, delete: if false;
     }
 
     // ---- Activation codes ----
     match /activationCodes/{codeId} {
-      allow read:   if signedIn();
-      allow create, update, delete: if isAdmin();
+      allow read, create, update, delete: if true;
     }
 
-    // ---- App meta / seed bookkeeping ----
+    // ---- App meta / health check ----
     match /appMeta/{docId} {
-      allow read:  if signedIn();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }
+
+// ============================================================
+// 🔒 نسخة الإنتاج (بعد تفعيل Firebase Auth + Custom Claims)
+// Production version — uncomment AFTER adding Firebase Auth and
+// setting the custom claim  role = "SUPER_ADMIN" / "STUDENT_ADMIN".
+// ============================================================
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     function signedIn() { return request.auth != null; }
+//     function role() { return signedIn() ? request.auth.token.role : null; }
+//     function isSuperAdmin() { return role() == 'SUPER_ADMIN'; }
+//     function isAdmin() { return role() == 'SUPER_ADMIN' || role() == 'STUDENT_ADMIN'; }
+//     function isSelf(studentId) {
+//       return signedIn() && (request.auth.uid == studentId || request.auth.token.studentId == studentId);
+//     }
+//     match /students/{studentId} {
+//       allow read:   if signedIn() && (isAdmin() || isSelf(studentId));
+//       allow create: if signedIn() && (isAdmin() || isSelf(studentId));
+//       allow update: if signedIn() && (isAdmin() || isSelf(studentId));
+//       allow delete: if isSuperAdmin();
+//     }
+//     match /auditLogs/{logId} {
+//       allow read:   if isAdmin();
+//       allow create: if signedIn();
+//       allow update, delete: if false;
+//     }
+//     match /activationCodes/{codeId} {
+//       allow read:   if signedIn();
+//       allow create, update, delete: if isAdmin();
+//     }
+//     match /appMeta/{docId} {
+//       allow read:  if signedIn();
+//       allow write: if isAdmin();
+//     }
+//   }
+// }

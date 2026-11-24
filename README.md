@@ -123,6 +123,15 @@
    *(الملفات: `firestore.rules` و `storage.rules` و `firebase.json`)*
 3. فعّل **Firestore** و **Storage** من Firebase Console، واضبط Custom Claim للسوبر أدمن: `role = "SUPER_ADMIN"`.
 
+**لو ظهر «محلي / Local mode» — الخطوات بالترتيب:**
+1. **تأكد إن Firestore متفعّل**: Firebase Console → Build → Firestore Database → *Create database* (اختر Production mode).
+2. **الصق القواعد** (أسهل طريقة بدون CLI): Firestore → تبويب **Rules** → الصق محتوى `firestore.rules` من الريبو → **Publish**.
+   - الريبو دلوقتي فيه **«وضع مفتوح»** يسمح بالقراءة/الكتابة/الحذف من غير Firebase Auth عشان التطبيق يشتغل على Cloud فوراً.
+   - نسخة الإنتاج المشدّدة موجودة معلّقة في آخر نفس الملف (بعد ما تضيف Firebase Auth + Custom Claims).
+3. **الكتب**: Storage → تبويب **Rules** → الصق `storage.rules` → Publish (لازم تفعّل Storage على خطة Blaze).
+4. اضغط Refresh — الشيب في الهيدر يبقى **«سحابي / Cloud»** أخضر.
+5. في تاب «حذف الطلاب» فيه بلوك ⚙️ بيعرض **سبب الخطأ الحقيقي** لو لسه مش متصل.
+
 **السلوك:**
 - التطبيق بيشترك realtime في `students`، فالحذف/الإضافة بيظهروا فوراً على كل الأجهزة.
 - لو Firebase مش متاح (قواعد مقفولة/شبكة)، التطبيق بيكمل في **وضع محلي** ويظهر شيب «محلي / Local mode» في الهيدر بدل «سحابي / Cloud».

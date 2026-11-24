@@ -16,6 +16,7 @@ import {
   deleteDoc,
   onSnapshot,
   getDocs,
+  getDocsFromServer,
   addDoc,
   query,
   orderBy,
@@ -29,12 +30,17 @@ import { Student, AuditLog, GeneratedActivationCode } from '../types';
 /*  Connection / availability check                                    */
 /* ------------------------------------------------------------------ */
 
-/** بيتحقق إن Firestore قابل للوصول فعلاً (بيقرأ مستند واحد). */
+/**
+ * بيتحقق إن Firestore قابل للوصول فعلاً بقراءة من السيرفر.
+ * أول ما ينجح مرة واحدة، التطبيق بيفضل في وضع «سحابي» حتى لو النت فصل
+ * (البيانات بتتخزن في الكاش وبتتزامن لما يرجع).
+ */
 export const checkFirebaseConnection = async (): Promise<boolean> => {
   try {
-    await getDocs(query(collection(db, COLLECTIONS.meta), limit(1)));
+    await getDocsFromServer(query(collection(db, COLLECTIONS.students), limit(1)));
     return true;
-  } catch {
+  } catch (error) {
+    console.warn('[firebase] connection check failed', error);
     return false;
   }
 };

@@ -8,7 +8,12 @@
  * official project config, so the app works out of the box.
  */
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore
+} from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 
@@ -27,7 +32,22 @@ export const firebaseConfig = {
 
 export const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-export const db: Firestore = getFirestore(app);
+/**
+ * Firestore with an IndexedDB persistent cache:
+ * - يعرض البيانات المحفوظة فوراً عند إعادة التحميل (بدون انتظار الشبكة)
+ * - يشتغل أوفلاين ويكمّل المزامنة لما الاتصال يرجع
+ */
+export const db: Firestore = (() => {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      experimentalAutoDetectLongPolling: true
+    });
+  } catch {
+    // لو تمت التهيئة مسبقاً (HMR) أو فشل الـ IndexedDB
+    return initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  }
+})();
 export const storage: FirebaseStorage = getStorage(app);
 
 /** Analytics is optional (unsupported in some browsers / SSR previews). */
