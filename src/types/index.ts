@@ -30,6 +30,10 @@ export interface BookPdf {
   isIndexed: boolean;
   analyzedSummary: string;
   keyConceptsCount: number;
+  /** رابط الملف على Firebase Storage (لو اترفع فعلياً) */
+  fileUrl?: string;
+  /** مسار الملف داخل Storage - يُستخدم للحذف */
+  storagePath?: string;
 }
 
 export interface Lesson {
@@ -252,6 +256,7 @@ export interface GeneratedActivationCode {
 
 export type ViewTab =
   | 'students'
+  | 'delete_students'
   | 'code_generator'
   | 'audit_logs'
   | 'activation_page'

@@ -23,6 +23,8 @@ interface BookPlanBuilderProps {
   isArabic: boolean;
   onCancel?: () => void;
   onSubmit: (book: BookPdf, plan: GeneratedPlan) => void;
+  /** رفع الملف على Firebase Storage (اختياري) — بيرجع رابط الملف ومساره */
+  onUpload?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
 }
 
 const SUBJECTS = [
@@ -53,11 +55,15 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
   student,
   isArabic,
   onCancel,
-  onSubmit
+  onSubmit,
+  onUpload
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Step 1: the book
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
   const [fileSizeMb, setFileSizeMb] = useState(0);
   const [bookTitle, setBookTitle] = useState('');
@@ -113,6 +119,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
       return;
     }
     setError(null);
+    setFile(file);
     setFileName(file.name);
     setFileSizeMb(Number((file.size / (1024 * 1024)).toFixed(1)));
     if (!bookTitle) setBookTitle(file.name.replace(/\.pdf$/i, ''));
@@ -127,19 +134,41 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
 
   const canBuild = !!examDate && new Date(`${examDate}T00:00:00`).getTime() > Date.now();
 
-  const handleBuild = () => {
+  const handleBuild = async () => {
     if (!canBuild) {
       setError(isArabic ? 'اختار تاريخ امتحان في المستقبل أولاً.' : 'Pick a future exam date first.');
       return;
     }
+
+    let finalBook: BookPdf = draftBook;
+
+    // ارفع الملف على Firebase Storage (لو متاح) قبل بناء الخطة
+    if (onUpload && file) {
+      setUploading(true);
+      try {
+        const uploaded = await onUpload(file, draftBook.id);
+        if (uploaded) {
+          finalBook = { ...draftBook, fileUrl: uploaded.url, storagePath: uploaded.storagePath };
+        } else {
+          setWarning(
+            isArabic
+              ? 'تم بناء الخطة، لكن رفع الملف على السحابة فشل (تحقق من صلاحيات Firebase Storage).'
+              : 'Plan built, but the file upload failed (check Firebase Storage rules).'
+          );
+        }
+      } finally {
+        setUploading(false);
+      }
+    }
+
     const plan = generateStudyPlan({
-      book: draftBook,
+      book: finalBook,
       examDate,
       revisionRounds,
       dailyMinutes,
       daysOff
     });
-    onSubmit(draftBook, plan);
+    onSubmit(finalBook, plan);
   };
 
   const steps = [
@@ -204,6 +233,13 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
 
           <div className="p-4 sm:p-6 space-y-5">
 
+            {warning && (
+              <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-100 text-xs flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{warning}</span>
+              </div>
+            )}
+
             {error && (
               <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-xs flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -246,7 +282,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                         {isArabic ? 'اضغط لرفع كتاب PDF' : 'Tap to upload your PDF book'}
                       </span>
                       <span className="text-[11px] text-slate-400">
-                        {isArabic ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت` : `Up to ${MAX_FILE_SIZE_MB}MB`}
+                        {isArabic ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُرفع على Firebase Storage` : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firebase Storage`}
                       </span>
                     </>
                   )}
@@ -481,11 +517,20 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                   </button>
                   <button
                     onClick={handleBuild}
-                    disabled={!canBuild}
+                    disabled={!canBuild || uploading}
                     className="py-3.5 rounded-xl bg-gradient-to-r from-brand-blue to-brand-purple text-white text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2"
                   >
-                    <Sparkles className="w-4 h-4" />
-                    {isArabic ? 'ابنِ خطتي' : 'Build my plan'}
+                    {uploading ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/70 border-t-transparent rounded-full animate-spin" />
+                        {isArabic ? 'جاري الرفع...' : 'Uploading...'}
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        {isArabic ? 'ابنِ خطتي' : 'Build my plan'}
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
