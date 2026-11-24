@@ -23,8 +23,10 @@ interface BookPlanBuilderProps {
   isArabic: boolean;
   onCancel?: () => void;
   onSubmit: (book: BookPdf, plan: GeneratedPlan) => void;
-  /** رفع الملف على Firebase Storage (اختياري) — بيرجع رابط الملف ومساره */
+  /** رفع الملف (Storage أو بديل Firestore) — بيرجع رابط الملف ومساره */
   onUpload?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
+  /** الوسيلة المتاحة حالياً — بتغيّر النص التوضيحي والحد العملي */
+  storageBackend?: 'storage' | 'firestore';
 }
 
 const SUBJECTS = [
@@ -56,7 +58,8 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
   isArabic,
   onCancel,
   onSubmit,
-  onUpload
+  onUpload,
+  storageBackend = 'firestore'
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -151,9 +154,13 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
           finalBook = { ...draftBook, fileUrl: uploaded.url, storagePath: uploaded.storagePath };
         } else {
           setWarning(
-            isArabic
-              ? 'تم بناء الخطة، لكن رفع الملف على السحابة فشل (تحقق من صلاحيات Firebase Storage).'
-              : 'Plan built, but the file upload failed (check Firebase Storage rules).'
+            storageBackend === 'storage'
+              ? (isArabic
+                  ? 'تم بناء الخطة، لكن رفع الملف فشل (تحقق من قواعد Firebase Storage).'
+                  : 'Plan built, but the file upload failed (check Firebase Storage rules).')
+              : (isArabic
+                  ? 'تم بناء الخطة، لكن تخزين الملف على Firestore فشل (راجع قواعد Firestore).'
+                  : 'Plan built, but storing the file on Firestore failed (check Firestore rules).')
           );
         }
       } finally {
@@ -282,7 +289,13 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                         {isArabic ? 'اضغط لرفع كتاب PDF' : 'Tap to upload your PDF book'}
                       </span>
                       <span className="text-[11px] text-slate-400">
-                        {isArabic ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُرفع على Firebase Storage` : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firebase Storage`}
+                        {storageBackend === 'storage'
+                          ? (isArabic
+                              ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُرفع على Firebase Storage`
+                              : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firebase Storage`)
+                          : (isArabic
+                              ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُخزَّن على Firestore (الخطة المجانية)`
+                              : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firestore (free plan)`)}
                       </span>
                     </>
                   )}

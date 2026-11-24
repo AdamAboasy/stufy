@@ -35,7 +35,7 @@ import {
 } from './lib/activationService';
 
 import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
-import { uploadBook, deleteBookFile } from './lib/booksService';
+import { uploadBook, deleteBookFile, getBookFileUrl, resolveStorageBackend } from './lib/booksService';
 import { initAnalytics } from './lib/firebase';
 import { 
   Users, 
@@ -89,6 +89,7 @@ export const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>([]);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [storageBackend, setStorageBackend] = useState<'storage' | 'firestore'>('firestore');
 
   // Real-time students from the shared database
   useEffect(() => {
@@ -124,6 +125,13 @@ export const App: React.FC = () => {
       unsubscribeAudit();
       unsubscribeCodes();
     };
+  }, []);
+
+  // اختيار وسيلة تخزين الكتب تلقائياً (Storage لو Blaze، وإلا Firestore)
+  useEffect(() => {
+    resolveStorageBackend()
+      .then(setStorageBackend)
+      .catch(() => setStorageBackend('firestore'));
   }, []);
 
   // Restore the logged-in student from the shared database (not from a local copy)
@@ -1013,6 +1021,8 @@ export const App: React.FC = () => {
           currentStudent ? uploadBook(currentStudent.id, bookId, file) : Promise.resolve(null)
         }
         onDeleteBookFile={deleteBookFile}
+        onOpenBookFile={getBookFileUrl}
+        bookStorageBackend={storageBackend}
       />
     );
   }

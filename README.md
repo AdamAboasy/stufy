@@ -107,6 +107,8 @@
 ## 🔥 Firebase Integration (الربط بالسحابة)
 
 > 📘 دليل الإعداد المنظّم: **[FIREBASE_SETUP.md](./FIREBASE_SETUP.md)**
+> 💡 **مش محتاج Blaze:** لو ظهرت رسالة `Storage requires a billing account`، التطبيق بيخزّن الكتب
+> تلقائياً على **Firestore** (خطة مجانية) — التفاصيل في القسم 7 من الدليل.
 
 المشروع بقى مربوط بمشروع Firebase: **study-managment-45332**.
 

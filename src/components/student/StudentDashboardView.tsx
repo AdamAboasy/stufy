@@ -48,8 +48,12 @@ interface StudentDashboardViewProps {
   onSavePlan?: (plan: GeneratedPlan) => void;
   /** رفع ملف الكتاب على Firebase Storage */
   onUploadBookFile?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
-  /** حذف ملف كتاب من Firebase Storage */
+  /** حذف ملف كتاب من التخزين */
   onDeleteBookFile?: (storagePath?: string) => Promise<void>;
+  /** فتح الملف (Storage مباشرة أو تجميع شرائح Firestore) */
+  onOpenBookFile?: (storagePath?: string) => Promise<string | null>;
+  /** الوسيلة المستخدمة لتخزين الكتب */
+  bookStorageBackend?: 'storage' | 'firestore';
 }
 
 type SubTab = 'home' | 'plan' | 'books' | 'exam' | 'settings' | 'devices';
@@ -70,7 +74,9 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   onUpdateStudent,
   onSavePlan,
   onUploadBookFile,
-  onDeleteBookFile
+  onDeleteBookFile,
+  onOpenBookFile,
+  bookStorageBackend = 'firestore'
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('home');
   const [showBuilder, setShowBuilder] = useState(false);
@@ -181,6 +187,23 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
         ? (isArabic ? 'تم حذف الكتاب والخطة المرتبطة به.' : 'Book and its linked plan were deleted.')
         : (isArabic ? 'تم حذف الكتاب.' : 'Book deleted.')
     );
+  };
+
+  const [openingBookId, setOpeningBookId] = useState<string | null>(null);
+
+  const handleOpenBook = async (pdf: BookPdf) => {
+    if (!onOpenBookFile || !pdf.storagePath) return;
+    setOpeningBookId(pdf.id);
+    try {
+      const url = await onOpenBookFile(pdf.storagePath);
+      if (url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        flash(isArabic ? 'تعذّر فتح الملف. جرّب ترفعه تاني.' : 'Could not open the file. Try re-uploading.');
+      }
+    } finally {
+      setOpeningBookId(null);
+    }
   };
 
   const handleDeletePlan = () => {
@@ -783,15 +806,16 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                       >
                         {isArabic ? 'تفاصيل' : 'Details'}
                       </button>
-                      {pdf.fileUrl ? (
-                        <a
-                          href={pdf.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="py-2 rounded-xl bg-emerald-950/50 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 text-center"
+                      {pdf.storagePath ? (
+                        <button
+                          onClick={() => handleOpenBook(pdf)}
+                          disabled={openingBookId === pdf.id}
+                          className="py-2 rounded-xl bg-emerald-950/50 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 text-center disabled:opacity-60"
                         >
-                          {isArabic ? 'فتح الملف' : 'Open file'}
-                        </a>
+                          {openingBookId === pdf.id
+                            ? (isArabic ? 'جاري الفتح...' : 'Opening...')
+                            : (isArabic ? 'فتح الملف' : 'Open file')}
+                        </button>
                       ) : (
                         <button
                           onClick={() => setShowBuilder(true)}
@@ -979,6 +1003,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           onCancel={() => setShowBuilder(false)}
           onSubmit={handleCreatePlan}
           onUpload={onUploadBookFile}
+          storageBackend={bookStorageBackend}
         />
       )}
 
