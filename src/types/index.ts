@@ -1,6 +1,8 @@
 export type Language = 'ar' | 'en';
 export type ThemeMode = 'dark' | 'light';
-export type UserRole = 'SUPER_ADMIN' | 'STUDENT';
+export type UserRole = 'SUPER_ADMIN' | 'STUDENT' | 'STUDENT_ADMIN';
+
+export type Gender = 'male' | 'female';
 
 export type SubscriptionPlan = 'Free' | 'Basic' | 'Pro' | 'Elite VIP';
 export type AccountStatus = 'Active' | 'Suspended' | 'Expired' | 'Pending';
@@ -118,6 +120,61 @@ export interface PerformanceReport {
   weeklyActivity: { day: string; hours: number }[];
 }
 
+/* ============================================================
+   AI Study Plan Engine (books -> auto generated schedule)
+   ============================================================ */
+
+export interface StudySession {
+  id: string;
+  dayIndex: number;          // 0-based day offset from plan start
+  date: string;              // YYYY-MM-DD
+  chapterTitle: string;
+  chapterTitleAr: string;
+  pageFrom: number;
+  pageTo: number;
+  durationMinutes: number;
+  kind: 'study' | 'revision' | 'mock';
+  roundNumber: number;       // 0 = first pass, 1..N = revision rounds
+  title: string;
+  titleAr: string;
+  isCompleted: boolean;
+}
+
+export interface BookChapterMap {
+  id: string;
+  index: number;
+  title: string;
+  titleAr: string;
+  pageFrom: number;
+  pageTo: number;
+  pageCount: number;
+  weight: number;            // share of the book
+}
+
+export interface StudyPreferences {
+  examDate: string;
+  revisionRounds: number;
+  dailyMinutes: number;
+  daysOff: number[];         // 0=Sunday .. 6=Saturday
+}
+
+export interface GeneratedPlan {
+  id: string;
+  bookId: string;
+  bookTitle: string;
+  subject: string;
+  totalPages: number;
+  chapters: BookChapterMap[];
+  examDate: string;
+  revisionRounds: number;
+  dailyMinutes: number;
+  startDate: string;
+  firstPassEndDate: string;
+  createdAt: string;
+  sessions: StudySession[];
+  rounds: RevisionRound[];
+}
+
 export interface ActivationHistoryItem {
   id: string;
   code: string;
@@ -140,6 +197,8 @@ export interface Student {
   guardianPhoneNumber: string;
   nationalId: string;
   avatarUrl: string;
+  gender?: Gender;
+  isAdmin?: boolean;         // student promoted to admin by the Super Admin
   academicYear: string;
   academicYearAr: string;
   status: AccountStatus;
@@ -155,6 +214,8 @@ export interface Student {
   revisionPlanner: ExamRevisionPlanner;
   performanceReport: PerformanceReport;
   activationHistory: ActivationHistoryItem[];
+  studyPreferences?: StudyPreferences;
+  generatedPlan?: GeneratedPlan | null;
   overallProgress: number; // 0-100
   notes?: string;
 }
@@ -189,5 +250,17 @@ export interface GeneratedActivationCode {
   createdByName: string;
 }
 
-export type ViewTab = 'students' | 'code_generator' | 'audit_logs' | 'activation_page' | 'student_dashboard' | 'login';
+export type ViewTab =
+  | 'students'
+  | 'code_generator'
+  | 'audit_logs'
+  | 'activation_page'
+  | 'student_dashboard'
+  | 'login';
+
+export interface AcademicStageOption {
+  id: string;
+  labelAr: string;
+  labelEn: string;
+}
 

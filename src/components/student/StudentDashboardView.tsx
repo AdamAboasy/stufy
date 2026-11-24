@@ -1,801 +1,1052 @@
-import React, { useState } from 'react';
-import { Student, DailyTask, BookPdf } from '../../types';
+import React, { useMemo, useState } from 'react';
+import { BookPdf, GeneratedPlan, Student, StudySession } from '../../types';
 import { Logo } from '../brand/Logo';
-import { WhatsAppButton } from '../whatsapp/WhatsAppButton';
-import { 
-  Flame, 
-  Calendar, 
-  Clock, 
-  CheckCircle, 
-  BookOpen, 
-  Award, 
-  Sparkles, 
-  KeyRound, 
+import { BookPlanBuilder } from './BookPlanBuilder';
+import { StudentSettings } from './StudentSettings';
+import { formatDateAr, planProgressPercent } from '../../lib/planEngine';
+import {
+  Flame,
+  Calendar,
+  Clock,
+  CheckCircle,
+  BookOpen,
+  Award,
+  Sparkles,
+  KeyRound,
   TrendingUp,
   FileText,
   LogOut,
   Shield,
-  PlusCircle,
   Laptop,
   Smartphone,
   Tablet,
   CheckCircle2,
-  ListTodo,
   Library,
   GraduationCap,
   ShieldCheck,
-  ChevronRight,
-  ExternalLink,
-  Target
+  Target,
+  Home,
+  Settings,
+  PlusCircle,
+  RefreshCw,
+  Globe,
+  MoreHorizontal,
+  Trash2,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 
 interface StudentDashboardViewProps {
   student: Student;
   isArabic: boolean;
+  isAdmin?: boolean;
   onGoToActivation: () => void;
   onSwitchToAdmin: () => void;
   onLogout: () => void;
   onToggleLanguage?: () => void;
   onUpdateStudent?: (updated: Student) => void;
+  onSavePlan?: (plan: GeneratedPlan) => void;
 }
+
+type SubTab = 'home' | 'plan' | 'books' | 'exam' | 'settings' | 'devices';
+
+const todayIso = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`;
+};
 
 export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   student,
   isArabic,
+  isAdmin = false,
   onGoToActivation,
   onSwitchToAdmin,
   onLogout,
   onToggleLanguage,
-  onUpdateStudent
+  onUpdateStudent,
+  onSavePlan
 }) => {
-  // Navigation Sub-tab within Student Home Page
-  const [activeSubTab, setActiveSubTab] = useState<'tasks' | 'subjects' | 'pdfs' | 'revision' | 'devices'>('tasks');
-  
-  // Interactive Tasks State
-  const [tasks, setTasks] = useState<DailyTask[]>(student.dailyTasks || []);
-  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskSubject, setNewTaskSubject] = useState(student.subjects[0]?.name || 'Physics');
-  const [newTaskDuration, setNewTaskDuration] = useState(45);
-  const [newTaskTime, setNewTaskTime] = useState('06:00 PM');
-
-  // Selected PDF for AI Summary Inspection
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('home');
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [selectedPdf, setSelectedPdf] = useState<BookPdf | null>(null);
+  const [bookToDelete, setBookToDelete] = useState<BookPdf | null>(null);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
 
-  // Toggle Task Completion
-  const toggleTask = (taskId: string) => {
-    const updated = tasks.map(t => t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t);
-    setTasks(updated);
-    if (onUpdateStudent) {
-      onUpdateStudent({
-        ...student,
-        dailyTasks: updated
-      });
-    }
+  const plan = student.generatedPlan || null;
+  const today = todayIso();
+  const todaySessions = useMemo(
+    () => (plan ? plan.sessions.filter(s => s.date === today) : []),
+    [plan, today]
+  );
+  const nextSessions = useMemo(() => {
+    if (!plan) return [];
+    const upcoming = plan.sessions.filter(s => s.date > today).slice(0, 5);
+    if (upcoming.length >= 5) return upcoming;
+    const past = plan.sessions.filter(s => s.date <= today && !s.isCompleted).slice(0, 5 - upcoming.length);
+    return [...past, ...upcoming];
+  }, [plan, today]);
+
+  const examDaysLeft = plan?.examDate
+    ? Math.max(0, Math.round((new Date(`${plan.examDate}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000))
+    : student.revisionPlanner?.daysRemaining || 0;
+
+  const completedSessions = plan ? plan.sessions.filter(s => s.isCompleted).length : 0;
+  const overallPlanProgress = planProgressPercent(plan);
+
+  const activeStudent = student;
+
+  const flash = (msg: string) => {
+    setSaveNote(msg);
+    setTimeout(() => setSaveNote(null), 3000);
   };
 
-  // Add Custom Task
-  const handleAddTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
+  /* ---------- actions ---------- */
 
-    const newTask: DailyTask = {
-      id: `task-custom-${Date.now()}`,
-      title: newTaskTitle.trim(),
-      titleAr: newTaskTitle.trim(),
-      subject: newTaskSubject,
-      scheduledTime: newTaskTime,
-      durationMinutes: Number(newTaskDuration),
-      isCompleted: false,
-      streakDays: 1,
-      isOverdue: false
+  const handleToggleSession = (session: StudySession) => {
+    if (!plan || !onUpdateStudent) return;
+    const updatedPlan: GeneratedPlan = {
+      ...plan,
+      sessions: plan.sessions.map(s => (s.id === session.id ? { ...s, isCompleted: !s.isCompleted } : s))
     };
-
-    const updated = [newTask, ...tasks];
-    setTasks(updated);
-    setNewTaskTitle('');
-    setShowAddTaskModal(false);
-
-    if (onUpdateStudent) {
-      onUpdateStudent({
-        ...student,
-        dailyTasks: updated
-      });
-    }
+    onUpdateStudent({ ...activeStudent, generatedPlan: updatedPlan });
   };
 
-  const completedCount = tasks.filter(t => t.isCompleted).length;
-  const progressPercent = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+  const handleCreatePlan = (book: BookPdf, generated: GeneratedPlan) => {
+    if (!onUpdateStudent || !onSavePlan) return;
+    // 1) register the uploaded book on the student record
+    const withBook: Student = {
+      ...activeStudent,
+      uploadedPdfs: [book, ...(activeStudent.uploadedPdfs || [])],
+      subjects: activeStudent.subjects?.length
+        ? activeStudent.subjects
+        : [
+            {
+              id: `sub-${book.subject}`,
+              name: book.subject,
+              nameAr: book.subject,
+              code: book.subject.slice(0, 3).toUpperCase(),
+              icon: 'BookOpen',
+              color: '#00D2FF',
+              totalLessons: generated.chapters.length,
+              completedLessons: 0,
+              progressPercent: 0,
+              chapters: []
+            }
+          ]
+    };
+    onUpdateStudent(withBook);
+    // 2) build the schedule from the book
+    onSavePlan(generated);
+    setShowBuilder(false);
+    setActiveSubTab('plan');
+    flash(isArabic ? 'تم بناء خطة المذاكرة من كتابك!' : 'Your study plan was built from your book!');
+  };
+
+  const handleToggleLegacyTask = (taskId: string) => {
+    if (!onUpdateStudent) return;
+    onUpdateStudent({
+      ...activeStudent,
+      dailyTasks: (activeStudent.dailyTasks || []).map(t =>
+        t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t
+      )
+    });
+  };
+
+  const handleDeleteBook = (book: BookPdf) => {
+    if (!onUpdateStudent) return;
+
+    // لو الخطة الحالية مبنية على الكتاب ده، بنمسح الخطة مع الكتاب
+    const planUsesBook = plan?.bookId === book.id;
+    onUpdateStudent({
+      ...activeStudent,
+      uploadedPdfs: (activeStudent.uploadedPdfs || []).filter(p => p.id !== book.id),
+      generatedPlan: planUsesBook ? null : activeStudent.generatedPlan
+    });
+    setBookToDelete(null);
+    setSelectedPdf(null);
+    flash(
+      planUsesBook
+        ? (isArabic ? 'تم حذف الكتاب والخطة المرتبطة به.' : 'Book and its linked plan were deleted.')
+        : (isArabic ? 'تم حذف الكتاب.' : 'Book deleted.')
+    );
+  };
+
+  const handleDeletePlan = () => {
+    if (!onUpdateStudent) return;
+    onUpdateStudent({ ...activeStudent, generatedPlan: null });
+    flash(isArabic ? 'تم حذف الخطة الحالية، يمكنك بناء خطة جديدة.' : 'Plan removed. You can build a new one.');
+  };
+
+  /* ---------- small UI helpers ---------- */
+
+  const kindStyles = (kind: StudySession['kind']) => {
+    if (kind === 'revision') return { bg: 'bg-purple-950/60', text: 'text-purple-300', border: 'border-purple-500/30', labelAr: 'مراجعة', labelEn: 'Revision' };
+    if (kind === 'mock') return { bg: 'bg-emerald-950/60', text: 'text-emerald-300', border: 'border-emerald-500/30', labelAr: 'امتحان تجريبي', labelEn: 'Mock exam' };
+    return { bg: 'bg-brand-blue/15', text: 'text-brand-blue-electric', border: 'border-brand-blue/30', labelAr: 'مذاكرة', labelEn: 'Study' };
+  };
+
+  const navItems: { key: SubTab; labelAr: string; labelEn: string; icon: React.ReactNode }[] = [
+    { key: 'home', labelAr: 'الرئيسية', labelEn: 'Home', icon: <Home className="w-5 h-5" /> },
+    { key: 'plan', labelAr: 'خطتي', labelEn: 'My plan', icon: <Calendar className="w-5 h-5" /> },
+    { key: 'books', labelAr: 'كتبي', labelEn: 'Books', icon: <Library className="w-5 h-5" /> },
+    { key: 'exam', labelAr: 'الامتحان', labelEn: 'Exam', icon: <Target className="w-5 h-5" /> },
+    { key: 'settings', labelAr: 'إعداداتي', labelEn: 'Settings', icon: <Settings className="w-5 h-5" /> }
+  ];
+
+  const desktopTabs: { key: SubTab; labelAr: string; labelEn: string; icon: React.ReactNode }[] = [
+    ...navItems,
+    { key: 'devices', labelAr: 'الأجهزة والاشتراك', labelEn: 'Devices & Plan', icon: <ShieldCheck className="w-5 h-5" /> }
+  ];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-brand-blue selection:text-white">
-      
-      {/* Top Header: Student Portal Navigation */}
-      <header className="bg-slate-900/90 border-b border-slate-800 px-4 sm:px-6 lg:px-8 py-3 sticky top-0 z-40 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-          
-          <div className="flex items-center gap-3">
-            <Logo variant="student-dash" size="md" isArabic={isArabic} />
-            <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-brand-blue/20 text-brand-blue-electric border border-brand-blue/40">
-              <Sparkles className="w-3 h-3" />
-              <span>{isArabic ? 'الصفحة الرئيسية' : 'Home Dashboard'}</span>
-            </span>
-          </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            
-            {/* Subscription Plan Badge */}
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-brand-purple/20 to-brand-blue/20 border border-brand-purple/40 text-xs font-bold text-white shadow-glow-combo">
+      {/* ============ Header ============ */}
+      <header className="bg-slate-900/95 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-2">
+
+          <button onClick={() => setActiveSubTab('home')} className="flex items-center gap-2 min-w-0">
+            <Logo variant="student-dash" size="sm" isArabic={isArabic} />
+          </button>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+
+            {/* Subscription badge (desktop) */}
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-brand-purple/20 to-brand-blue/20 border border-brand-purple/40 text-xs font-bold text-white">
               <Award className="w-4 h-4 text-brand-purple-light" />
               <span>{student.subscriptionPlan}</span>
-              <span className="text-[10px] text-emerald-400">● {isArabic ? 'نشط' : 'Active'}</span>
             </div>
 
-            {/* Language Toggle */}
             {onToggleLanguage && (
               <button
                 onClick={onToggleLanguage}
-                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                title={isArabic ? 'تبديل للغة الإنجليزية' : 'Switch to Arabic'}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                title={isArabic ? 'Switch to English' : 'التحويل للعربية'}
               >
-                {isArabic ? 'English' : 'عربي'}
+                <Globe className="w-4 h-4" />
               </button>
             )}
 
-            {/* Direct Activation CTA Button */}
-            <button
-              onClick={onGoToActivation}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-brand-blue-electric border border-brand-blue/30 transition-colors"
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{isArabic ? 'تفعيل كود إضافي' : 'Enter Code'}</span>
-            </button>
+            {/* Account menu */}
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen(v => !v)}
+                className="flex items-center gap-2 p-1 pl-2 rtl:pl-1 rtl:pr-2 rounded-xl bg-slate-800 hover:bg-slate-700"
+              >
+                <span className="hidden sm:inline text-xs font-bold text-slate-200 max-w-[110px] truncate">
+                  {isArabic ? student.fullNameAr || student.fullName : student.fullName}
+                </span>
+                <img
+                  src={student.avatarUrl}
+                  alt={student.fullName}
+                  className="w-8 h-8 rounded-lg object-cover border border-brand-blue/40"
+                />
+              </button>
 
-            {/* Super Admin Switch */}
-            <button
-              onClick={onSwitchToAdmin}
-              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-purple-950/60 hover:bg-purple-900/60 text-purple-200 border border-purple-500/30 transition-colors"
-            >
-              <Shield className="w-3.5 h-3.5 text-purple-400" />
-              <span>{isArabic ? 'لوحة الإدارة' : 'Admin'}</span>
-            </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                  <div className="absolute z-50 mt-2 w-56 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-1.5 end-0">
+                    <div className="px-3 py-2 border-b border-slate-800 mb-1">
+                      <div className="text-xs font-bold text-white truncate">
+                        {isArabic ? student.fullNameAr || student.fullName : student.fullName}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">{student.studentId}</div>
+                    </div>
 
-            {/* Student Avatar & Name */}
-            <div className="flex items-center gap-2 pr-1 rtl:pr-0 rtl:pl-1">
-              <img
-                src={student.avatarUrl || 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80'}
-                alt={student.fullName}
-                className="w-8 h-8 rounded-xl object-cover border border-brand-blue/50"
-              />
-              <span className="hidden xl:inline text-xs font-bold text-slate-200 truncate max-w-[120px]">
-                {isArabic ? student.fullNameAr || student.fullName : student.fullName}
-              </span>
+                    <button
+                      onClick={() => { setMenuOpen(false); setActiveSubTab('settings'); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                    >
+                      <Settings className="w-4 h-4 text-brand-blue-electric" />
+                      {isArabic ? 'إعدادات الحساب' : 'Account settings'}
+                    </button>
+
+                    <button
+                      onClick={() => { setMenuOpen(false); onGoToActivation(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                    >
+                      <KeyRound className="w-4 h-4 text-brand-blue-electric" />
+                      {isArabic ? 'تفعيل كود' : 'Redeem code'}
+                    </button>
+
+                    {isAdmin && (
+                      <button
+                        onClick={() => { setMenuOpen(false); onSwitchToAdmin(); }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-purple-200 hover:bg-purple-950/50"
+                      >
+                        <Shield className="w-4 h-4 text-purple-400" />
+                        {isArabic ? 'لوحة الإدارة' : 'Admin dashboard'}
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => { setMenuOpen(false); onLogout(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-red-300 hover:bg-red-950/50"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      {isArabic ? 'تسجيل الخروج' : 'Log out'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
+          </div>
+        </div>
 
-            {/* Logout Button */}
-            <button
-              onClick={onLogout}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-red-950/50 hover:bg-red-900/60 text-red-300 border border-red-500/30 transition-colors"
-              title={isArabic ? 'تسجيل الخروج' : 'Log Out'}
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{isArabic ? 'خروج' : 'Logout'}</span>
-            </button>
-
+        {/* Desktop sub-navigation */}
+        <div className="hidden md:block border-t border-slate-800/70">
+          <div className="max-w-7xl mx-auto px-6 lg:px-8 flex items-center gap-1 overflow-x-auto py-1.5">
+            {desktopTabs.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveSubTab(tab.key)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
+                  activeSubTab === tab.key
+                    ? 'bg-brand-blue text-white'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                {tab.icon}
+                <span>{isArabic ? tab.labelAr : tab.labelEn}</span>
+              </button>
+            ))}
           </div>
         </div>
       </header>
 
-      {/* Main Student Portal Content */}
-      <main className="max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 flex-1 space-y-6">
-        
-        {/* HERO WELCOME BANNER (Official Brand Theme) */}
-        <div className="glass-panel rounded-3xl p-6 sm:p-8 border border-slate-800 relative overflow-hidden bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-brand-navy-900/40">
-          
-          {/* Subtle Ambient Glows */}
-          <div className="absolute top-0 right-0 w-80 h-80 bg-brand-blue/15 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-80 h-80 bg-brand-purple/15 rounded-full blur-3xl pointer-events-none" />
+      {/* ============ Body ============ */}
+      <main className="max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-6 flex-1 space-y-4 sm:space-y-6 pb-28 md:pb-8">
 
-          <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-            
-            <div className="space-y-2.5 max-w-2xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-brand-blue/20 text-brand-blue-electric border border-brand-blue/30">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{isArabic ? student.academicYearAr || student.academicYear : student.academicYear}</span>
-                </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{isArabic ? `باقة ${student.subscriptionPlan} مفعلة` : `${student.subscriptionPlan} Plan Active`}</span>
-                </span>
-              </div>
-
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight">
-                {isArabic 
-                  ? `مرحباً بك يا ${student.fullNameAr || student.fullName}! 🚀` 
-                  : `Welcome back, ${student.fullName}! 🚀`}
-              </h1>
-
-              <p className="text-sm text-slate-300 leading-relaxed">
-                {isArabic 
-                  ? 'جدولك الدراسي منظم ومحدث بالذكاء الاصطناعي.. أكمل مهام اليوم للحفاظ على سلسلة الالتزام والتفوق!'
-                  : 'Your personalized AI syllabus is active. Complete today’s goals to protect your study streak and maximize scores.'}
-              </p>
-            </div>
-
-            {/* Quick Metrics Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full lg:w-auto shrink-0">
-              
-              {/* Metric 1: Streak */}
-              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
-                <div className="flex items-center justify-center gap-1 text-amber-400 text-xs font-bold mb-1">
-                  <Flame className="w-4 h-4 fill-amber-400" />
-                  <span>{isArabic ? 'سلسلة الالتزام' : 'Streak'}</span>
-                </div>
-                <div className="text-2xl font-black text-white">14 <span className="text-xs font-normal text-slate-400">{isArabic ? 'يوم' : 'days'}</span></div>
-              </div>
-
-              {/* Metric 2: Progress */}
-              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
-                <div className="flex items-center justify-center gap-1 text-brand-blue-electric text-xs font-bold mb-1">
-                  <TrendingUp className="w-4 h-4" />
-                  <span>{isArabic ? 'إنجاز المنهج' : 'Syllabus'}</span>
-                </div>
-                <div className="text-2xl font-black text-brand-blue-electric">{student.overallProgress || 76}%</div>
-              </div>
-
-              {/* Metric 3: Weekly Hours */}
-              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
-                <div className="flex items-center justify-center gap-1 text-emerald-400 text-xs font-bold mb-1">
-                  <Clock className="w-4 h-4" />
-                  <span>{isArabic ? 'ساعات الأسبوع' : 'Weekly'}</span>
-                </div>
-                <div className="text-2xl font-black text-white">28 <span className="text-xs font-normal text-slate-400">{isArabic ? 'س' : 'hrs'}</span></div>
-              </div>
-
-              {/* Metric 4: Days Remaining */}
-              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
-                <div className="flex items-center justify-center gap-1 text-purple-400 text-xs font-bold mb-1">
-                  <Target className="w-4 h-4" />
-                  <span>{isArabic ? 'الامتحانات' : 'Exam'}</span>
-                </div>
-                <div className="text-2xl font-black text-purple-300">
-                  {student.revisionPlanner?.daysRemaining || 185} <span className="text-xs font-normal text-slate-400">{isArabic ? 'يوم' : 'd'}</span>
-                </div>
-              </div>
-
-            </div>
-
+        {saveNote && (
+          <div className="p-3 rounded-2xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" />
+            {saveNote}
           </div>
-        </div>
+        )}
 
-        {/* WhatsApp Activation Banner */}
-        <WhatsAppButton isArabic={isArabic} variant="banner" />
+        {/* ---------- HOME ---------- */}
+        {activeSubTab === 'home' && (
+          <div className="space-y-4 sm:space-y-6">
 
-        {/* Interactive Navigation Sub-Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-800/80">
-          <button
-            onClick={() => setActiveSubTab('tasks')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-              activeSubTab === 'tasks'
-                ? 'bg-brand-blue text-white shadow-glow-blue/40'
-                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <ListTodo className="w-4 h-4" />
-            <span>{isArabic ? 'جدول ومهام اليوم' : "Today's Schedule"}</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-950/60 font-mono">
-              {completedCount}/{tasks.length}
-            </span>
-          </button>
+            {/* Welcome hero */}
+            <div className="glass-panel rounded-3xl p-5 sm:p-7 border border-slate-800 relative overflow-hidden bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-brand-navy-900/40">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-brand-blue/15 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute bottom-0 left-0 w-64 h-64 bg-brand-purple/15 rounded-full blur-3xl pointer-events-none" />
 
-          <button
-            onClick={() => setActiveSubTab('subjects')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-              activeSubTab === 'subjects'
-                ? 'bg-brand-blue text-white shadow-glow-blue/40'
-                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>{isArabic ? 'المواد والمناهج' : 'Subjects & Syllabus'}</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-950/60 font-mono">
-              {student.subjects?.length || 0}
-            </span>
-          </button>
+              <div className="relative z-10 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-brand-blue/20 text-brand-blue-electric border border-brand-blue/30">
+                    <Sparkles className="w-3 h-3" />
+                    {isArabic ? student.academicYearAr || student.academicYear : student.academicYear}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">
+                    <CheckCircle2 className="w-3 h-3" />
+                    {isArabic ? `باقة ${student.subscriptionPlan}` : `${student.subscriptionPlan} plan`}
+                  </span>
+                </div>
 
-          <button
-            onClick={() => setActiveSubTab('pdfs')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-              activeSubTab === 'pdfs'
-                ? 'bg-brand-blue text-white shadow-glow-blue/40'
-                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <Library className="w-4 h-4" />
-            <span>{isArabic ? 'الكتب والملازم الذكية' : 'Smart Textbooks'}</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-950/60 font-mono">
-              {student.uploadedPdfs?.length || 0}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('revision')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-              activeSubTab === 'revision'
-                ? 'bg-brand-blue text-white shadow-glow-blue/40'
-                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <GraduationCap className="w-4 h-4" />
-            <span>{isArabic ? 'مخطط المراجعة النهائية' : 'Revision Planner'}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('devices')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
-              activeSubTab === 'devices'
-                ? 'bg-brand-blue text-white shadow-glow-blue/40'
-                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" />
-            <span>{isArabic ? 'الأجهزة والاشتراك' : 'Subscription & Devices'}</span>
-          </button>
-        </div>
-
-        {/* TAB 1: TODAY'S SCHEDULE & TASKS */}
-        {activeSubTab === 'tasks' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Interactive Tasks List */}
-            <div className="lg:col-span-2 glass-panel rounded-3xl p-6 border border-slate-800 space-y-4">
-              
-              <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-brand-blue-electric" />
-                    <span>{isArabic ? 'قائمة مهام المذاكرة المخصصة لليوم' : "Today's Study Checklist"}</span>
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {isArabic ? 'اضغط على المهمة لتعليمها كمكتملة وتحديث إنجازك اليومي' : 'Click any task to toggle completion and track daily goals'}
+                  <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-white leading-tight">
+                    {isArabic
+                      ? `أهلاً ${student.fullNameAr || student.fullName} 👋`
+                      : `Welcome back, ${student.fullName} 👋`}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
+                    {plan
+                      ? (isArabic
+                          ? `خطتك جاهزة: باقي ${examDaysLeft} يوم على الامتحان، ومحتاج تخلص ${todaySessions.filter(s => !s.isCompleted).length} جلسة النهاردة.`
+                          : `Your plan is ready: ${examDaysLeft} days to the exam, ${todaySessions.filter(s => !s.isCompleted).length} session(s) left today.`)
+                      : (isArabic
+                          ? 'ابدأ برفع كتابك وتحديد يوم الامتحان، والبرنامج هيبني لك خطة مذاكرة ومراجعة منظمة.'
+                          : 'Start by uploading your book and setting the exam date — we build the schedule for you.')}
                   </p>
                 </div>
 
+                {/* Primary CTA */}
                 <button
-                  onClick={() => setShowAddTaskModal(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-brand-blue hover:bg-brand-blue-dark text-white shadow-glow-blue/30 transition-all"
+                  onClick={() => setShowBuilder(true)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl bg-gradient-to-r from-brand-blue to-brand-purple text-white text-sm font-bold shadow-glow-combo active:scale-[0.99]"
                 >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>{isArabic ? 'إضافة مهمة' : 'Add Task'}</span>
+                  <PlusCircle className="w-5 h-5" />
+                  {plan
+                    ? (isArabic ? 'بناء خطة جديدة من كتاب آخر' : 'Build a new plan from another book')
+                    : (isArabic ? 'ارفع كتابك وابنِ خطتك' : 'Upload your book & build your plan')}
                 </button>
-              </div>
 
-              {/* Progress Bar for Today */}
-              <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold text-slate-300">
-                    {isArabic ? 'نسبة إنجاز مهام اليوم' : "Today's Completion Rate"}
-                  </span>
-                  <span className="font-extrabold text-brand-blue-electric font-mono">{progressPercent}%</span>
-                </div>
-                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-gradient-to-r from-brand-blue to-emerald-400 h-full transition-all duration-500" 
-                    style={{ width: `${progressPercent}%` }} 
-                  />
-                </div>
-              </div>
-
-              {/* Tasks List */}
-              <div className="space-y-3">
-                {tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    onClick={() => toggleTask(task.id)}
-                    className={`p-4 rounded-2xl border transition-all cursor-pointer select-none ${
-                      task.isCompleted
-                        ? 'bg-slate-900/40 border-emerald-500/30'
-                        : 'bg-slate-900/90 border-slate-700 hover:border-brand-blue/60'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <div className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center transition-colors ${
-                          task.isCompleted
-                            ? 'bg-emerald-500 text-white shadow-glow-whatsapp'
-                            : 'border-2 border-slate-600 hover:border-brand-blue'
-                        }`}>
-                          {task.isCompleted && <CheckCircle className="w-3.5 h-3.5" />}
-                        </div>
-                        <div>
-                          <h3 className={`text-sm font-bold ${task.isCompleted ? 'text-slate-400 line-through' : 'text-white'}`}>
-                            {isArabic ? task.titleAr || task.title : task.title}
-                          </h3>
-                          <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
-                            <span className="text-brand-blue-electric font-semibold">{task.subject}</span>
-                            <span>•</span>
-                            <span>{task.scheduledTime}</span>
-                            <span>•</span>
-                            <span>{task.durationMinutes} {isArabic ? 'دقيقة' : 'min'}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                        task.isCompleted
-                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-sky-950 text-sky-300 border border-sky-500/30'
-                      }`}>
-                        {task.isCompleted ? (isArabic ? 'تم الإنجاز' : 'Done') : (isArabic ? 'مطلوب' : 'To Do')}
-                      </span>
+                {/* Metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
+                    <div className="flex items-center justify-center gap-1 text-amber-400 text-[10px] font-bold mb-0.5">
+                      <Flame className="w-3.5 h-3.5 fill-amber-400" />
+                      {isArabic ? 'التزام' : 'Streak'}
+                    </div>
+                    <div className="text-lg font-black text-white">
+                      {student.performanceReport?.studyStreakDays || 0}
+                      <span className="text-[10px] font-normal text-slate-400 mr-1 rtl:mr-0 rtl:ml-1">{isArabic ? 'يوم' : 'd'}</span>
                     </div>
                   </div>
-                ))}
-              </div>
 
+                  <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
+                    <div className="flex items-center justify-center gap-1 text-brand-blue-electric text-[10px] font-bold mb-0.5">
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      {isArabic ? 'الخطة' : 'Plan'}
+                    </div>
+                    <div className="text-lg font-black text-brand-blue-electric">{overallPlanProgress}%</div>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
+                    <div className="flex items-center justify-center gap-1 text-emerald-400 text-[10px] font-bold mb-0.5">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      {isArabic ? 'خلصت' : 'Done'}
+                    </div>
+                    <div className="text-lg font-black text-white">{completedSessions}</div>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 text-center">
+                    <div className="flex items-center justify-center gap-1 text-purple-400 text-[10px] font-bold mb-0.5">
+                      <Target className="w-3.5 h-3.5" />
+                      {isArabic ? 'للامتحان' : 'Exam in'}
+                    </div>
+                    <div className="text-lg font-black text-purple-300">
+                      {examDaysLeft}
+                      <span className="text-[10px] font-normal text-slate-400 mr-1 rtl:mr-0 rtl:ml-1">{isArabic ? 'يوم' : 'd'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Side Motivation & Quick Calendar */}
-            <div className="space-y-6">
-              
-              {/* Daily Quote & Advice */}
-              <div className="glass-panel rounded-3xl p-6 border border-slate-800 space-y-3 bg-gradient-to-br from-brand-purple/10 to-transparent">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-brand-purple-light" />
-                  <span>{isArabic ? 'نصيحة المساعد الذكي لليوم' : 'Daily AI Study Tip'}</span>
-                </h3>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {isArabic 
-                    ? '"تقسيم جلسات المذاكرة لـ 45 دقيقة مع استراحة 10 دقائق (تقنية بومودورو) يرفع قدرة استيعابك للمفاهيم الفيزيائية والكيميائية بنسبة 40%."'
-                    : '"Dividing your study into 45-min blocks followed by 10-min active breaks increases recall of complex physics equations by 40%."'}
+            {!plan ? (
+              /* Empty state: no ready-made tasks, the student creates their own plan */
+              <div className="glass-panel rounded-3xl border border-slate-800 p-6 sm:p-10 text-center space-y-4">
+                <div className="w-16 h-16 mx-auto rounded-3xl bg-brand-blue/15 border border-brand-blue/30 flex items-center justify-center">
+                  <BookOpen className="w-8 h-8 text-brand-blue-electric" />
+                </div>
+                <h2 className="text-lg font-bold text-white">
+                  {isArabic ? 'مفيش مهام جاهزة — إنت اللي بتحدد خطتك' : 'No preset tasks — you own your plan'}
+                </h2>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  {isArabic
+                    ? 'ارفع كتابك، حدد يوم الامتحان، وقولنا عايز تراجع كام مرة. البرنامج هيقسم الكتاب على الأيام ويبني لك جدول مذاكرة ومراجعة دقيق.'
+                    : 'Upload your book, set the exam date and pick how many revision rounds you want. We split the book across your days and build the schedule.'}
                 </p>
-                <div className="pt-2 border-t border-slate-800 text-[11px] text-brand-blue-light font-semibold">
-                  {isArabic ? 'مخطط الدراسة الذكي • خوارزمية التكرار المتباعد' : 'Smart Study Planner • Spaced Repetition'}
-                </div>
-              </div>
-
-              {/* Revision Planner Card Preview */}
-              <div className="glass-panel rounded-3xl p-6 border border-slate-800 space-y-3">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-brand-blue-electric" />
-                  <span>{isArabic ? 'الامتحانات المستهدفة' : 'Target Exam'}</span>
-                </h3>
-                <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 text-xs space-y-1">
-                  <div className="text-slate-400">{isArabic ? 'تاريخ امتحانات الثانوية العامة' : 'Thanawya Exam Date'}</div>
-                  <div className="text-base font-black text-white">{student.revisionPlanner?.targetExamDate || '2027-06-15'}</div>
-                  <div className="text-brand-purple-light font-bold">
-                    {isArabic ? `متبقي ${student.revisionPlanner?.daysRemaining || 185} يوماً` : `${student.revisionPlanner?.daysRemaining || 185} days left`}
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 2: SUBJECTS & SYLLABUS */}
-        {activeSubTab === 'subjects' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {student.subjects?.map((sub) => (
-              <div key={sub.id} className="glass-panel rounded-3xl p-6 border border-slate-800 space-y-4 hover:border-brand-blue/50 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-[11px] font-mono text-brand-blue-electric font-semibold">{sub.code}</span>
-                    <h3 className="text-lg font-bold text-white mt-0.5">{isArabic ? sub.nameAr || sub.name : sub.name}</h3>
-                  </div>
-                  <span className="px-3 py-1 rounded-full text-xs font-black bg-brand-blue/20 text-brand-blue-electric border border-brand-blue/30">
-                    {sub.progressPercent}%
-                  </span>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className="bg-gradient-to-r from-brand-blue to-brand-purple h-full" style={{ width: `${sub.progressPercent}%` }} />
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
-                  <span>{sub.completedLessons} / {sub.totalLessons} {isArabic ? 'درس مكتمل' : 'lessons completed'}</span>
-                  <span className="text-brand-blue-light font-semibold">{sub.chapters?.length || 4} {isArabic ? 'فصول' : 'chapters'}</span>
-                </div>
-
-                {/* Chapters Preview */}
-                <div className="space-y-1.5 pt-1">
-                  {sub.chapters?.slice(0, 2).map((chap) => (
-                    <div key={chap.id} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-xs flex justify-between items-center">
-                      <span className="text-slate-300 truncate">{isArabic ? chap.titleAr || chap.title : chap.title}</span>
-                      <span className="text-[10px] text-slate-400 shrink-0 font-mono">{chap.lessons?.length || 0} {isArabic ? 'دروس' : 'lessons'}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-w-lg mx-auto pt-2 text-start">
+                  {[
+                    { ar: '١. ارفع الكتاب', en: '1. Upload the book', icon: <Library className="w-4 h-4" /> },
+                    { ar: '٢. حدد يوم الامتحان', en: '2. Set the exam date', icon: <Calendar className="w-4 h-4" /> },
+                    { ar: '٣. اختار مراجعاتك', en: '3. Choose revisions', icon: <RefreshCw className="w-4 h-4" /> }
+                  ].map((s, i) => (
+                    <div key={i} className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-300 flex items-center gap-2">
+                      <span className="text-brand-blue-electric">{s.icon}</span>
+                      {isArabic ? s.ar : s.en}
                     </div>
                   ))}
                 </div>
+                <button
+                  onClick={() => setShowBuilder(true)}
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-brand-blue hover:bg-brand-blue-dark text-white text-sm font-bold"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {isArabic ? 'ابدأ وابنِ خطتي' : 'Start & build my plan'}
+                </button>
+
+                {/* Existing tasks (if any) stay available until a new plan is built */}
+                {activeStudent.dailyTasks?.length > 0 && (
+                  <div className="pt-4 border-t border-slate-800 text-start space-y-2">
+                    <h3 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-brand-blue-electric" />
+                      {isArabic ? 'مهامك الحالية' : 'Your current tasks'}
+                    </h3>
+                    {activeStudent.dailyTasks.map(task => (
+                      <div
+                        key={task.id}
+                        onClick={() => handleToggleLegacyTask(task.id)}
+                        className={`p-3 rounded-xl border cursor-pointer flex items-center gap-2.5 ${
+                          task.isCompleted ? 'bg-slate-900/40 border-emerald-500/25' : 'bg-slate-900 border-slate-800'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${
+                          task.isCompleted ? 'bg-emerald-500' : 'border-2 border-slate-600'
+                        }`}>
+                          {task.isCompleted && <CheckCircle className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className={`text-[11px] font-semibold truncate ${task.isCompleted ? 'text-slate-400 line-through' : 'text-slate-200'}`}>
+                            {isArabic ? task.titleAr || task.title : task.title}
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            {task.subject} • {task.scheduledTime} • {task.durationMinutes}m
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        )}
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
 
-        {/* TAB 3: SMART TEXTBOOKS & AI SUMMARIES */}
-        {activeSubTab === 'pdfs' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {student.uploadedPdfs?.map((pdf) => (
-                <div key={pdf.id} className="glass-panel rounded-3xl p-6 border border-slate-800 space-y-4 flex flex-col justify-between">
-                  <div className="space-y-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="w-10 h-10 rounded-xl bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400">
-                        <FileText className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-[11px] font-bold text-brand-blue-electric uppercase">{pdf.subject}</span>
-                        <h3 className="text-sm font-bold text-white line-clamp-1">{pdf.title}</h3>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
-                      {pdf.analyzedSummary}
-                    </p>
+                {/* Today's sessions */}
+                <div className="lg:col-span-2 glass-panel rounded-3xl p-5 border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-brand-blue-electric" />
+                      {isArabic ? 'مهام النهاردة' : "Today's sessions"}
+                    </h2>
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      {todaySessions.filter(s => s.isCompleted).length}/{todaySessions.length}
+                    </span>
                   </div>
 
-                  <div className="space-y-3 pt-3 border-t border-slate-800">
-                    <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span>{pdf.pageCount} {isArabic ? 'صفحة' : 'pages'}</span>
-                      <span className="text-emerald-400 font-bold">{pdf.keyConceptsCount} {isArabic ? 'مفهوم مستخرج' : 'AI concepts'}</span>
+                  {todaySessions.length === 0 ? (
+                    <div className="p-6 rounded-2xl bg-slate-900/70 border border-slate-800 text-center text-xs text-slate-400">
+                      {isArabic ? 'مفيش جلسات النهاردة (يوم راحة أو الخطة لسه ما بدأتش).' : 'No sessions today (rest day or plan not started).'}
                     </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {todaySessions.map(session => {
+                        const st = kindStyles(session.kind);
+                        return (
+                          <div
+                            key={session.id}
+                            onClick={() => handleToggleSession(session)}
+                            className={`p-3.5 rounded-2xl border cursor-pointer active:scale-[0.99] transition-all flex items-start gap-3 ${
+                              session.isCompleted
+                                ? 'bg-slate-900/40 border-emerald-500/30'
+                                : 'bg-slate-900/90 border-slate-700'
+                            }`}
+                          >
+                            <div className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center shrink-0 ${
+                              session.isCompleted ? 'bg-emerald-500 text-white' : 'border-2 border-slate-600'
+                            }`}>
+                              {session.isCompleted && <CheckCircle className="w-3.5 h-3.5" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <h3 className={`text-xs sm:text-sm font-bold ${session.isCompleted ? 'text-slate-400 line-through' : 'text-white'}`}>
+                                {isArabic ? session.titleAr : session.title}
+                              </h3>
+                              <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400 mt-1">
+                                <span className={`px-1.5 py-0.5 rounded ${st.bg} ${st.text} border ${st.border} font-bold`}>
+                                  {isArabic ? st.labelAr : st.labelEn}
+                                </span>
+                                <span>{session.durationMinutes} {isArabic ? 'دقيقة' : 'min'}</span>
+                                <span>•</span>
+                                <span className="font-mono">{session.date}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                    <button
-                      onClick={() => setSelectedPdf(pdf)}
-                      className="w-full py-2.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-brand-blue-light border border-slate-700/80 transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>{isArabic ? 'استعراض المفاهيم والقوانين الذكية' : 'View AI Summary'}</span>
-                    </button>
+                  <button
+                    onClick={() => setActiveSubTab('plan')}
+                    className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-brand-blue-light text-xs font-bold border border-slate-700"
+                  >
+                    {isArabic ? 'عرض الخطة كاملة' : 'View the full plan'}
+                  </button>
+                </div>
+
+                {/* Side: exam countdown + next up */}
+                <div className="space-y-4">
+                  <div className="glass-panel rounded-3xl p-5 border border-slate-800 space-y-3 bg-gradient-to-br from-brand-purple/10 to-transparent">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-brand-purple-light" />
+                      {isArabic ? 'الامتحان' : 'Exam'}
+                    </h3>
+                    <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                      <div className="text-[11px] text-slate-400">{isArabic ? 'تاريخ الامتحان' : 'Exam date'}</div>
+                      <div className="text-sm font-black text-white">{formatDateAr(plan.examDate)}</div>
+                      <div className="text-brand-purple-light font-bold text-xs">
+                        {isArabic ? `باقي ${examDaysLeft} يوم` : `${examDaysLeft} days left`}
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {isArabic
+                        ? `${plan.revisionRounds} جولة مراجعة • ${plan.sessions.length} جلسة إجمالاً`
+                        : `${plan.revisionRounds} revision round(s) • ${plan.sessions.length} sessions`}
+                    </div>
+                  </div>
+
+                  <div className="glass-panel rounded-3xl p-5 border border-slate-800 space-y-2.5">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-brand-blue-electric" />
+                      {isArabic ? 'الجاي في خطتك' : 'Up next'}
+                    </h3>
+                    {nextSessions.length === 0 && (
+                      <p className="text-[11px] text-slate-400">{isArabic ? 'مفيش جلسات قادمة.' : 'No upcoming sessions.'}</p>
+                    )}
+                    {nextSessions.map(s => (
+                      <div key={`next-${s.id}`} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] flex items-center justify-between gap-2">
+                        <span className="text-slate-300 truncate">{isArabic ? s.titleAr : s.title}</span>
+                        <span className="text-slate-500 font-mono shrink-0">{s.date.slice(5)}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* TAB 4: REVISION PLANNER */}
-        {activeSubTab === 'revision' && (
-          <div className="space-y-6">
-            <div className="glass-panel rounded-3xl p-6 sm:p-8 border border-slate-800 space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-brand-purple-light" />
-                  <span>{isArabic ? 'جدول جولات المراجعة النهائية لامتحانات الثانوية' : 'Revision Blitz Rounds'}</span>
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  {isArabic ? 'نظام المراجعة الثلاثي لضمان تثبيت القوانين وحل النماذج الشاملة' : '3-Tier Revision Strategy covering syllabus retention and mock exam readiness'}
-                </p>
+        {/* ---------- PLAN ---------- */}
+        {activeSubTab === 'plan' && (
+          <div className="space-y-4">
+            {!plan ? (
+              <div className="glass-panel rounded-3xl border border-slate-800 p-8 text-center space-y-3">
+                <Calendar className="w-10 h-10 text-slate-600 mx-auto" />
+                <p className="text-sm text-slate-300 font-bold">{isArabic ? 'لسه ما بنيتش خطة' : 'No plan yet'}</p>
+                <button
+                  onClick={() => setShowBuilder(true)}
+                  className="px-5 py-2.5 rounded-xl bg-brand-blue text-white text-xs font-bold"
+                >
+                  {isArabic ? 'ابنِ خطتي الآن' : 'Build my plan now'}
+                </button>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {student.revisionPlanner?.rounds?.map((round) => (
-                  <div key={round.id} className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-brand-purple/20 text-brand-purple-light border border-brand-purple/30">
-                        {isArabic ? `الجولة ${round.roundNumber}` : `Round ${round.roundNumber}`}
-                      </span>
-                      <span className="text-xs font-extrabold text-white">{round.progressPercent}%</span>
+            ) : (
+              <>
+                {/* Plan header */}
+                <div className="glass-panel rounded-3xl border border-slate-800 p-5 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-sm sm:text-base font-bold text-white truncate">{plan.bookTitle}</h2>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {plan.subject} • {plan.totalPages} {isArabic ? 'صفحة' : 'pages'} • {plan.chapters.length} {isArabic ? 'فصل' : 'chapters'}
+                      </p>
                     </div>
+                    <button
+                      onClick={handleDeletePlan}
+                      className="p-2 rounded-xl bg-red-950/60 text-red-300 border border-red-500/30 shrink-0"
+                      title={isArabic ? 'حذف الخطة' : 'Delete plan'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                    <h3 className="font-bold text-white text-sm">{isArabic ? round.titleAr || round.title : round.title}</h3>
-
-                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-gradient-to-r from-brand-purple to-brand-blue h-full" style={{ width: `${round.progressPercent}%` }} />
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-1">
+                      <span className="text-slate-400">{isArabic ? 'تقدم الخطة' : 'Plan progress'}</span>
+                      <span className="font-bold text-brand-blue-electric">{overallPlanProgress}%</span>
                     </div>
+                    <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-brand-blue to-emerald-400 h-full transition-all duration-500"
+                        style={{ width: `${overallPlanProgress}%` }}
+                      />
+                    </div>
+                  </div>
 
-                    <div className="text-[11px] text-slate-400 pt-2 flex justify-between">
-                      <span>{round.startDate}</span>
-                      <span>{round.targetDate}</span>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] text-slate-400">{isArabic ? 'البداية' : 'Start'}</div>
+                      <div className="text-[11px] font-bold text-white font-mono">{plan.startDate.slice(5)}</div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] text-slate-400">{isArabic ? 'نهاية القراءة' : 'First pass'}</div>
+                      <div className="text-[11px] font-bold text-white font-mono">{plan.firstPassEndDate.slice(5)}</div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] text-slate-400">{isArabic ? 'الامتحان' : 'Exam'}</div>
+                      <div className="text-[11px] font-bold text-purple-300 font-mono">{plan.examDate.slice(5)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Revision rounds */}
+                {plan.rounds.length > 0 && (
+                  <div className="glass-panel rounded-3xl border border-slate-800 p-5 space-y-3">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 text-brand-purple-light" />
+                      {isArabic ? 'جولات المراجعة' : 'Revision rounds'}
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                      {plan.rounds.map(r => (
+                        <div key={r.id} className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-purple/20 text-brand-purple-light border border-brand-purple/30">
+                              {isArabic ? `جولة ${r.roundNumber}` : `Round ${r.roundNumber}`}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">{r.status}</span>
+                          </div>
+                          <h4 className="text-[11px] font-bold text-white leading-snug">{isArabic ? r.titleAr : r.title}</h4>
+                          <div className="text-[10px] text-slate-400 font-mono">{r.startDate} → {r.targetDate}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Full schedule grouped by date */}
+                <div className="glass-panel rounded-3xl border border-slate-800 p-5 space-y-3">
+                  <h3 className="text-sm font-bold text-white">{isArabic ? 'جدول المذاكرة كامل' : 'Full schedule'}</h3>
+                  <div className="space-y-2 max-h-[26rem] overflow-y-auto pr-1">
+                    {plan.sessions.map(session => {
+                      const st = kindStyles(session.kind);
+                      return (
+                        <div
+                          key={session.id}
+                          onClick={() => handleToggleSession(session)}
+                          className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2.5 ${
+                            session.isCompleted ? 'bg-slate-900/40 border-emerald-500/25' : 'bg-slate-900 border-slate-800'
+                          }`}
+                        >
+                          <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${
+                            session.isCompleted ? 'bg-emerald-500' : 'border-2 border-slate-600'
+                          }`}>
+                            {session.isCompleted && <CheckCircle className="w-3 h-3 text-white" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className={`text-[11px] font-semibold truncate ${session.isCompleted ? 'text-slate-400 line-through' : 'text-slate-200'}`}>
+                              {isArabic ? session.titleAr : session.title}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5">
+                              <span className={`px-1 rounded ${st.bg} ${st.text}`}>{isArabic ? st.labelAr : st.labelEn}</span>
+                              <span className="font-mono">{session.date}</span>
+                              <span>• {session.durationMinutes}m</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ---------- BOOKS ---------- */}
+        {activeSubTab === 'books' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                <Library className="w-5 h-5 text-brand-blue-electric" />
+                {isArabic ? 'كتبي' : 'My books'}
+                <span className="text-[11px] text-slate-400 font-mono">({student.uploadedPdfs?.length || 0})</span>
+              </h2>
+              <button
+                onClick={() => setShowBuilder(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-blue text-white text-[11px] font-bold"
+              >
+                <PlusCircle className="w-4 h-4" />
+                {isArabic ? 'ارفع كتاب' : 'Upload'}
+              </button>
+            </div>
+
+            {(!student.uploadedPdfs || student.uploadedPdfs.length === 0) ? (
+              <div className="glass-panel rounded-3xl border border-slate-800 p-8 text-center space-y-3">
+                <FileText className="w-10 h-10 text-slate-600 mx-auto" />
+                <p className="text-xs text-slate-400">{isArabic ? 'لسه ما رفعتش أي كتاب.' : 'No books uploaded yet.'}</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {student.uploadedPdfs.map(pdf => (
+                  <div key={pdf.id} className="glass-panel rounded-2xl border border-slate-800 p-4 space-y-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] font-bold text-brand-blue-electric uppercase">{pdf.subject}</span>
+                        <h3 className="text-xs font-bold text-white line-clamp-2">{pdf.title}</h3>
+                      </div>
+                      <button
+                        onClick={() => setBookToDelete(pdf)}
+                        className="p-1.5 rounded-lg bg-red-950/60 text-red-300 border border-red-500/30 shrink-0 active:scale-95"
+                        title={isArabic ? 'حذف الكتاب' : 'Delete book'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>{pdf.pageCount} {isArabic ? 'صفحة' : 'pages'}</span>
+                      <span>{pdf.fileSizeMb} MB</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        onClick={() => setSelectedPdf(pdf)}
+                        className="py-2 rounded-xl bg-slate-900 text-brand-blue-light text-[11px] font-bold border border-slate-700"
+                      >
+                        {isArabic ? 'تفاصيل' : 'Details'}
+                      </button>
+                      <button
+                        onClick={() => setShowBuilder(true)}
+                        className="py-2 rounded-xl bg-brand-purple/20 text-brand-purple-light text-[11px] font-bold border border-brand-purple/30"
+                      >
+                        {isArabic ? 'خطة' : 'Plan'}
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ---------- EXAM ---------- */}
+        {activeSubTab === 'exam' && (
+          <div className="space-y-4">
+            <div className="glass-panel rounded-3xl border border-slate-800 p-5 space-y-4">
+              <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                <Target className="w-5 h-5 text-brand-purple-light" />
+                {isArabic ? 'خطة الامتحان' : 'Exam plan'}
+              </h2>
+
+              {!plan ? (
+                <div className="text-center py-6 space-y-3">
+                  <p className="text-xs text-slate-400">{isArabic ? 'حدد امتحانك وابنِ خطتك عشان نحسب لك العد التنازلي والمراجعات.' : 'Set your exam and build a plan to see the countdown and revisions.'}</p>
+                  <button
+                    onClick={() => setShowBuilder(true)}
+                    className="px-5 py-2.5 rounded-xl bg-brand-blue text-white text-xs font-bold"
+                  >
+                    {isArabic ? 'حدد الامتحان' : 'Set the exam'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-brand-purple/15 to-slate-900 border border-brand-purple/30 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] text-slate-400">{isArabic ? 'يوم الامتحان' : 'Exam date'}</div>
+                      <div className="text-base font-black text-white">{formatDateAr(plan.examDate)}</div>
+                    </div>
+                    <div className="text-center shrink-0">
+                      <div className="text-2xl font-black text-purple-300">{examDaysLeft}</div>
+                      <div className="text-[10px] text-slate-400">{isArabic ? 'يوم متبقي' : 'days left'}</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-bold text-slate-300">{isArabic ? 'خطة المراجعة' : 'Revision plan'}</h3>
+                    {plan.rounds.length === 0 && (
+                      <p className="text-[11px] text-slate-400">{isArabic ? 'بدون جولات مراجعة (اخترت بدون).' : 'No revision rounds selected.'}</p>
+                    )}
+                    {plan.rounds.map(r => (
+                      <div key={`exam-${r.id}`} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-white truncate">{isArabic ? r.titleAr : r.title}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{r.startDate} → {r.targetDate}</div>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 shrink-0">{r.status}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setShowBuilder(true)}
+                      className="py-2.5 rounded-xl bg-slate-800 text-slate-200 text-[11px] font-bold"
+                    >
+                      {isArabic ? 'تعديل الخطة' : 'Adjust plan'}
+                    </button>
+                    <button
+                      onClick={() => setActiveSubTab('plan')}
+                      className="py-2.5 rounded-xl bg-brand-blue text-white text-[11px] font-bold"
+                    >
+                      {isArabic ? 'جدول المذاكرة' : 'Study schedule'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
 
-        {/* TAB 5: SUBSCRIPTION & DEVICES */}
-        {activeSubTab === 'devices' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
-            {/* Subscription Card */}
-            <div className="glass-panel rounded-3xl p-6 border border-slate-800 space-y-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Award className="w-5 h-5 text-brand-blue-electric" />
-                <span>{isArabic ? 'تفاصيل باقة الاشتراك' : 'Subscription Details'}</span>
-              </h2>
+        {/* ---------- SETTINGS ---------- */}
+        {activeSubTab === 'settings' && onUpdateStudent && (
+          <StudentSettings
+            student={student}
+            isArabic={isArabic}
+            onSave={(updated) => {
+              onUpdateStudent(updated);
+              flash(isArabic ? 'تم تحديث بياناتك.' : 'Profile updated.');
+            }}
+            onBack={() => setActiveSubTab('home')}
+          />
+        )}
 
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-brand-navy-900/60 border border-brand-blue/30 space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-slate-400">{isArabic ? 'الخطة الحالية' : 'Current Plan'}</span>
-                  <span className="px-3 py-1 rounded-full text-xs font-black bg-brand-blue text-white shadow-glow-blue/40">
-                    {student.subscriptionPlan}
-                  </span>
+        {/* ---------- DEVICES & SUBSCRIPTION ---------- */}
+        {activeSubTab === 'devices' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="glass-panel rounded-3xl p-5 border border-slate-800 space-y-3">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <Award className="w-5 h-5 text-brand-blue-electric" />
+                {isArabic ? 'باقة الاشتراك' : 'Subscription'}
+              </h2>
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-brand-blue/30 space-y-2 text-[11px]">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">{isArabic ? 'الباقة' : 'Plan'}</span>
+                  <span className="font-black text-brand-blue-electric">{student.subscriptionPlan}</span>
                 </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-400">{isArabic ? 'تاريخ التفعيل' : 'Activated On'}</span>
-                  <span className="text-white font-mono">{student.registrationDate?.split('T')[0] || '2026-09-01'}</span>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">{isArabic ? 'التفعيل' : 'Activated'}</span>
+                  <span className="text-white font-mono">{student.registrationDate?.split('T')[0]}</span>
                 </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-400">{isArabic ? 'تاريخ الانتهاء' : 'Expires At'}</span>
-                  <span className="text-emerald-400 font-mono font-bold">{student.subscriptionExpiryDate?.split('T')[0] || '2027-06-30'}</span>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">{isArabic ? 'الانتهاء' : 'Expires'}</span>
+                  <span className="text-emerald-400 font-mono font-bold">{student.subscriptionExpiryDate?.split('T')[0]}</span>
                 </div>
               </div>
-
               <button
                 onClick={onGoToActivation}
-                className="w-full py-3 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 text-brand-blue-electric border border-brand-blue/40 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-brand-blue-electric border border-brand-blue/40 text-[11px] font-bold flex items-center justify-center gap-1.5"
               >
-                <KeyRound className="w-4 h-4" />
-                <span>{isArabic ? 'تفعيل كود تجديد أو ترقية باقة' : 'Redeem Renewal / Upgrade Code'}</span>
+                <KeyRound className="w-3.5 h-3.5" />
+                {isArabic ? 'تفعيل كود تجديد' : 'Redeem renewal code'}
               </button>
             </div>
 
-            {/* Registered Devices */}
-            <div className="glass-panel rounded-3xl p-6 border border-slate-800 space-y-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <div className="glass-panel rounded-3xl p-5 border border-slate-800 space-y-3">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                <span>{isArabic ? 'الأجهزة المسجلة لحسابك' : 'Connected Devices'}</span>
+                {isArabic ? 'الأجهزة المسجلة' : 'Devices'}
               </h2>
-
-              <div className="space-y-3">
-                {student.registeredDevices?.map((dev) => (
-                  <div key={dev.id} className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-brand-blue-light">
+              <div className="space-y-2">
+                {student.registeredDevices?.map(dev => (
+                  <div key={dev.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-[11px]">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-brand-blue-light shrink-0">
                         {dev.deviceType === 'desktop' && <Laptop className="w-4 h-4" />}
                         {dev.deviceType === 'mobile' && <Smartphone className="w-4 h-4" />}
                         {dev.deviceType === 'tablet' && <Tablet className="w-4 h-4" />}
                       </div>
-                      <div>
-                        <div className="font-bold text-white flex items-center gap-2">
-                          <span>{dev.deviceName}</span>
-                          {dev.isCurrent && (
-                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/30">
-                              {isArabic ? 'جهازك الحالي' : 'Current'}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-slate-400 text-[11px] mt-0.5">{dev.os} • {dev.browser}</div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-white truncate">{dev.deviceName}</div>
+                        <div className="text-slate-400 text-[10px] truncate">{dev.os} • {dev.browser}</div>
                       </div>
                     </div>
-                    <span className="text-slate-400 text-[10px] font-mono">{dev.ipAddress.split(' ')[0]}</span>
+                    {dev.isCurrent && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500/30 shrink-0">
+                        {isArabic ? 'الحالي' : 'Current'}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
-
           </div>
         )}
 
       </main>
 
-      {/* Add Custom Task Modal */}
-      {showAddTaskModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass-panel max-w-md w-full rounded-3xl p-6 border border-slate-800 bg-slate-900 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-white text-base flex items-center gap-2">
-                <PlusCircle className="w-5 h-5 text-brand-blue-electric" />
-                <span>{isArabic ? 'إضافة مهمة مذاكرة جديدة' : 'Add Study Task'}</span>
-              </h3>
-              <button onClick={() => setShowAddTaskModal(false)} className="text-slate-400 hover:text-white">✕</button>
-            </div>
-
-            <form onSubmit={handleAddTask} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {isArabic ? 'عنوان المهمة' : 'Task Title'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  placeholder={isArabic ? 'مثال: حل 30 سؤال كيمياء عضوية' : 'e.g. Solve 30 Organic Chemistry Questions'}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {isArabic ? 'المادة' : 'Subject'}
-                  </label>
-                  <select
-                    value={newTaskSubject}
-                    onChange={(e) => setNewTaskSubject(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
-                  >
-                    {student.subjects?.map(s => (
-                      <option key={s.id} value={s.name}>{isArabic ? s.nameAr || s.name : s.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {isArabic ? 'المدة (دقيقة)' : 'Duration (min)'}
-                  </label>
-                  <input
-                    type="number"
-                    min="15"
-                    step="5"
-                    value={newTaskDuration}
-                    onChange={(e) => setNewTaskDuration(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {isArabic ? 'الوقت المجدول' : 'Scheduled Time'}
-                </label>
-                <input
-                  type="text"
-                  value={newTaskTime}
-                  onChange={(e) => setNewTaskTime(e.target.value)}
-                  placeholder="06:00 PM"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-mono"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 rounded-xl font-bold text-xs bg-brand-blue text-white hover:bg-brand-blue-dark transition-colors shadow-glow-blue/40 mt-2"
-              >
-                {isArabic ? 'إضافة إلى جدول اليوم' : 'Add to Schedule'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* AI Summary Inspection Modal */}
-      {selectedPdf && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass-panel max-w-xl w-full rounded-3xl p-6 sm:p-8 border border-slate-800 bg-slate-900 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-brand-blue-electric" />
-                <h3 className="font-bold text-white text-base truncate max-w-md">{selectedPdf.title}</h3>
-              </div>
-              <button onClick={() => setSelectedPdf(null)} className="text-slate-400 hover:text-white">✕</button>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
-              <div className="text-brand-blue-electric font-bold">{isArabic ? 'الملخص الذكي للمحتوى والقوانين:' : 'Extracted AI Summary & Formulas:'}</div>
-              <p className="text-slate-300 leading-relaxed">{selectedPdf.analyzedSummary}</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <span className="text-slate-400">{isArabic ? 'عدد الصفحات' : 'Page Count'}:</span>
-                <span className="font-bold text-white mr-2 rtl:mr-0 rtl:ml-2">{selectedPdf.pageCount}</span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <span className="text-slate-400">{isArabic ? 'المفاهيم الذكية' : 'AI Concepts'}:</span>
-                <span className="font-bold text-emerald-400 mr-2 rtl:mr-0 rtl:ml-2">{selectedPdf.keyConceptsCount}</span>
-              </div>
-            </div>
-
+      {/* ============ Mobile bottom navigation ============ */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-1.5 pt-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]">
+        <div className="grid grid-cols-5 gap-0.5">
+          {navItems.map(item => (
             <button
-              onClick={() => setSelectedPdf(null)}
-              className="w-full py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white"
+              key={item.key}
+              onClick={() => setActiveSubTab(item.key)}
+              className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[10px] font-bold transition-colors ${
+                activeSubTab === item.key ? 'bg-brand-blue/15 text-brand-blue-electric' : 'text-slate-400'
+              }`}
             >
-              {isArabic ? 'إغلاق' : 'Close'}
+              {item.icon}
+              <span>{isArabic ? item.labelAr : item.labelEn}</span>
             </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* ============ Build plan modal ============ */}
+      {showBuilder && (
+        <BookPlanBuilder
+          student={student}
+          isArabic={isArabic}
+          onCancel={() => setShowBuilder(false)}
+          onSubmit={handleCreatePlan}
+        />
+      )}
+
+      {/* ============ Delete book confirmation ============ */}
+      {bookToDelete && (
+        <div className="fixed inset-0 z-[65] bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-red-500/40 p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-red-950 text-red-400 border border-red-500/40 shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-white text-base">
+                  {isArabic ? 'تأكيد حذف الكتاب' : 'Confirm book deletion'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed break-words">
+                  {isArabic
+                    ? `سيتم حذف (${bookToDelete.title}) نهائياً من مكتبتك${plan?.bookId === bookToDelete.id ? '، ومعاه الخطة المبنية عليه' : ''}.`
+                    : `(${bookToDelete.title}) will be permanently removed from your library${plan?.bookId === bookToDelete.id ? ' along with the plan built on it' : ''}.`}
+                </p>
+              </div>
+              <button
+                onClick={() => setBookToDelete(null)}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row gap-2 pt-1">
+              <button
+                onClick={() => setBookToDelete(null)}
+                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                onClick={() => handleDeleteBook(bookToDelete)}
+                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {isArabic ? 'حذف نهائي' : 'Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Footer */}
-      <footer className="max-w-7xl mx-auto w-full text-center text-xs text-slate-500 py-4 border-t border-slate-800/60">
-        © 2026 Smart Study Planner (مخطط الدراسة الذكي) • {isArabic ? 'نظام دراسة ذكي ومخصص' : 'Personalized AI Study Engine'}
+      {/* ============ Book details modal ============ */}
+      {selectedPdf && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-slate-800 p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-bold text-white text-sm">{selectedPdf.title}</h3>
+              <button onClick={() => setSelectedPdf(null)} className="p-1.5 rounded-lg bg-slate-800 text-slate-400">
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">{selectedPdf.analyzedSummary}</p>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-slate-400">{isArabic ? 'الصفحات' : 'Pages'}: </span>
+                <span className="font-bold text-white">{selectedPdf.pageCount}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-slate-400">{isArabic ? 'المفاهيم' : 'Concepts'}: </span>
+                <span className="font-bold text-emerald-400">{selectedPdf.keyConceptsCount}</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                onClick={() => { setSelectedPdf(null); setShowBuilder(true); }}
+                className="w-full py-3 rounded-xl bg-brand-blue text-white text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                {isArabic ? 'ابنِ خطة لهذا الكتاب' : 'Build a plan for this book'}
+              </button>
+              <button
+                onClick={() => setBookToDelete(selectedPdf)}
+                className="w-full py-2.5 rounded-xl bg-red-950/60 text-red-300 border border-red-500/30 text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {isArabic ? 'حذف هذا الكتاب' : 'Delete this book'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <footer className="max-w-7xl mx-auto w-full text-center text-[11px] text-slate-500 py-4 border-t border-slate-800/60 mb-16 md:mb-0">
+        © 2026 Smart Study Planner • {isArabic ? 'خطة مذاكرة مبنية على كتابك' : 'Plans built from your own book'}
       </footer>
 
     </div>
