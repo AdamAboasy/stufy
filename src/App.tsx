@@ -15,27 +15,27 @@ import { ActivationCodePage } from './components/student/ActivationCodePage';
 import { StudentDashboardView } from './components/student/StudentDashboardView';
 import { LoginPage } from './components/auth/LoginPage';
 import {
-  uploadBookFile,
-  deleteBookFile,
-  subscribeToStudents,
-  saveStudent,
-  deleteStudent as deleteStudentCloud,
-  deleteStudentsBatch,
-  seedStudentsIfEmpty,
-  pushAuditLog,
-  checkFirebaseConnection
-} from './lib/firebaseRepo';
+  subscribeStudents,
+  fetchStudentsFromServer,
+  findStudentByEmail,
+  upsertStudent,
+  removeStudent,
+  removeStudentsBatch,
+  verifyDeleted,
+  forgetLocalStudent,
+  type SyncState
+} from './lib/studentsService';
 import {
-  withoutDeleted,
-  markDeleted,
-  unmarkDeleted,
-  getDeletedIds,
-  getPendingStudents,
-  queuePendingStudent,
-  removePendingStudent,
-  hasSeededDemo,
-  markSeededDemo
-} from './lib/deletedIds';
+  subscribeActivationCodes,
+  saveActivationCode,
+  markCodeRedeemed,
+  revokeActivationCode,
+  fetchActivationCodes,
+  getActivationCode
+} from './lib/activationService';
+
+import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
+import { uploadBook, deleteBookFile } from './lib/booksService';
 import { initAnalytics } from './lib/firebase';
 import { 
   Users, 
@@ -74,125 +74,86 @@ export const App: React.FC = () => {
     return localStorage.getItem('ssp_admin_auth') === 'true' ? 'students' : 'login';
   });
 
-  // Data State (Firestore is the source of truth; local cache is the offline fallback)
-  const [students, setStudents] = useState<Student[]>(() => {
-    try {
-      const raw = localStorage.getItem('ssp_students');
-      if (raw) {
-        const cached = JSON.parse(raw) as Student[];
-        if (Array.isArray(cached)) return withoutDeleted(cached);
-      }
-    } catch {
-      /* ignore */
-    }
-    return withoutDeleted(INITIAL_STUDENTS);
-  });
-  const [cloudConnected, setCloudConnected] = useState<boolean>(false);
-  const [cloudSyncing, setCloudSyncing] = useState<boolean>(true);
-  const [cloudError, setCloudError] = useState<string | null>(null);
+  /* ============================================================
+     DATA LAYER — Firestore is the ONLY source of truth.
+     مفيش أي نسخة محلية بتتخلط مع السيرفر: كل الأجهزة تشوف نفس البيانات.
+     ============================================================ */
+  const [students, setStudents] = useState<Student[]>([]);
+  const [studentsLoaded, setStudentsLoaded] = useState(false);
+  const [sync, setSync] = useState<SyncState>({ status: 'connecting' });
+  const cloudConnected = sync.status === 'online';
 
-  // Firebase: analytics + realtime students listener
+  // Currently logged-in student session (resolved from the shared DB)
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>([]);
+  const [dataError, setDataError] = useState<string | null>(null);
+
+  // Real-time students from the shared database
   useEffect(() => {
     initAnalytics();
 
-    let unsubscribe: (() => void) | null = null;
-    let cancelled = false;
-
-    const start = async () => {
-      const online = await checkFirebaseConnection();
-      if (cancelled) return;
-      setCloudConnected(online);
-      if (!online) {
-        setCloudError(
-          isArabic
-            ? 'تعذّر الاتصال بـ Firestore. أسهل حل: في Firebase Console → Firestore → Rules الصق قواعد «الوضع المفتوح» من ملف firestore.rules في المشروع واضغط Publish (أو شغّل firebase deploy --only firestore:rules,storage). كمان تأكد إنك أنشأت قاعدة بيانات Firestore فعلاً.'
-            : 'Could not reach Firestore. Easiest fix: Firebase Console → Firestore → Rules → paste the open-mode rules from firestore.rules in the repo and Publish (or run firebase deploy --only firestore:rules,storage). Also make sure a Firestore database was created.'
-        );
-      } else {
-        setCloudError(null);
+    const unsubscribeStudents = subscribeStudents(
+      (list, meta) => {
+        setStudents(list);
+        setStudentsLoaded(true);
+        if (meta.fromCache) setSync(prev => ({ ...prev, status: 'connecting' }));
+      },
+      state => {
+        setSync(state);
+        if (state.error) setDataError(state.error);
+        if (state.status === 'online') setDataError(null);
       }
+    );
 
-      if (online) {
-        // نرفع البيانات التجريبية مرة واحدة فقط في عمر المتصفح — عشان المحذوف ميرجعش
-        if (!hasSeededDemo()) {
-          const pendingOnFirstRun = getPendingStudents<Student>();
-          if (pendingOnFirstRun.length > 0) {
-            await Promise.all(pendingOnFirstRun.map(st => saveStudent(st)));
-            pendingOnFirstRun.forEach(st => removePendingStudent(st.id));
-          }
-          await seedStudentsIfEmpty(withoutDeleted(INITIAL_STUDENTS));
-          markSeededDemo();
-        }
+    // Audit trail (best effort — needs rules to allow reads)
+    const unsubscribeAudit = subscribeAuditLogs(
+      logs => setAuditLogs(logs),
+      error => console.warn('[firebase] audit listener', error)
+    );
 
-        // أي طالب اتسجل والتطبيق كان أوفلاين: نرفعه دلوقتي
-        const pending = getPendingStudents<Student>();
-        for (const queued of pending) {
-          const result = await saveStudent(queued);
-          if (result.ok) removePendingStudent(queued.id);
-        }
-      }
-
-      unsubscribe = subscribeToStudents(
-        remoteStudents => {
-          if (cancelled) return;
-          // بنستبعد أي طالب محذوف + اللي لسه في طابور الرفع (مش هنمسحه من الشاشة)
-          const pendingList = getPendingStudents<Student>();
-          const merged = [...pendingList, ...withoutDeleted(remoteStudents)];
-          const unique = Array.from(new Map(merged.map(st => [st.id, st])).values());
-          const sorted = unique.sort(
-            (a, b) => new Date(b.registrationDate).getTime() - new Date(a.registrationDate).getTime()
-          );
-          setStudents(sorted);
-          setCloudConnected(true);
-          setCloudSyncing(false);
-        },
-        error => {
-          console.warn('[firebase] students listener error', error);
-          setCloudConnected(false);
-          setCloudSyncing(false);
-          setCloudError(
-            `${isArabic ? 'خطأ في قراءة بيانات الطلاب' : 'Reading students failed'}: ${(error as { code?: string })?.code || String(error)}`
-          );
-        }
-      );
-    };
-
-    start();
+    // Activation codes (shared, so a code generated here works on any device)
+    const unsubscribeCodes = subscribeActivationCodes(
+      codes => setActivationCodes(codes),
+      error => console.warn('[firebase] codes listener', error)
+    );
 
     return () => {
-      cancelled = true;
-      unsubscribe?.();
+      unsubscribeStudents();
+      unsubscribeAudit();
+      unsubscribeCodes();
     };
   }, []);
 
-  // Mirror students locally too (offline fallback between refreshes)
+  // Restore the logged-in student from the shared database (not from a local copy)
   useEffect(() => {
-    try {
-      localStorage.setItem('ssp_students', JSON.stringify(students));
-    } catch {
-      /* storage full - ignore */
-    }
-  }, [students]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
-  const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>(INITIAL_ACTIVATION_CODES);
-
-  // Currently Logged-in Student Session (for Student Dashboard Home Page)
-  const [currentStudent, setCurrentStudent] = useState<Student | null>(() => {
+    if (currentStudent) return;
     const savedId = localStorage.getItem('ssp_student_id');
-    if (savedId) {
-      const found = INITIAL_STUDENTS.find(s => s.id === savedId || s.studentId === savedId);
-      if (found) return found;
-    }
-    return INITIAL_STUDENTS[0];
-  });
+    if (!savedId) return;
+    findStudentByEmail(localStorage.getItem('ssp_student_email') || '')
+      .then(found => {
+        if (found) setCurrentStudent(found);
+        else getStudentByIdFallback(savedId);
+      })
+      .catch(() => getStudentByIdFallback(savedId));
 
-  // Keep the logged-in student object in sync with the latest students list
+    function getStudentByIdFallback(id: string) {
+      const fromList = students.find(st => st.id === id || st.studentId === id);
+      if (fromList) {
+        setCurrentStudent(fromList);
+      } else {
+        localStorage.removeItem('ssp_student_id');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentsLoaded]);
+
+  // Keep the logged-in student in sync with the live list
   useEffect(() => {
     if (!currentStudent) return;
     const fresh = students.find(s => s.id === currentStudent.id);
-    if (fresh && fresh !== currentStudent) {
-      setCurrentStudent(fresh);
-    }
+    if (fresh && fresh !== currentStudent) setCurrentStudent(fresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [students]);
 
@@ -232,29 +193,57 @@ export const App: React.FC = () => {
           ? 'تم تسجيل الدخول بنجاح! مرحباً بك يا أستاذ آدم في لوحة الإدارة العليا.'
           : 'Authenticated successfully! Welcome back to the Super Admin Dashboard.'
       );
-    } else {
-      const matched = students.find(s => s.email.toLowerCase() === userEmail.toLowerCase()) || students[0];
-      if (!matched) {
-        showToast(
-          isArabic
-            ? 'لا يوجد حساب طالب مسجل بهذا البريد. يرجى إنشاء حساب جديد بكود التفعيل.'
-            : 'No student account found for this email. Please register with an activation code.'
-        );
-        setActiveTab('login');
-        return;
-      }
-      const promoted = !!matched.isAdmin;
-      setCurrentRole(promoted ? 'STUDENT_ADMIN' : 'STUDENT');
-      localStorage.setItem('ssp_role', promoted ? 'STUDENT_ADMIN' : 'STUDENT');
-      setCurrentStudent(matched);
-      localStorage.setItem('ssp_student_id', matched.id);
-      setActiveTab('student_dashboard');
-      showToast(
-        isArabic
-          ? `أهلاً بك يا ${matched.fullNameAr || matched.fullName}! تم فتح صفحتك الرئيسية.`
-          : `Welcome ${matched.fullName}! Launched your home dashboard.`
-      );
     }
+  };
+
+  /**
+   * تسجيل دخول الطالب: البحث في قاعدة البيانات المشتركة (مش من نسخة المتصفح)
+   * Student sign-in resolves the account from the shared Firestore database.
+   */
+  const handleStudentSignIn = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const clean = email.trim().toLowerCase();
+    let matched: Student | null = null;
+
+    try {
+      matched = await findStudentByEmail(clean);
+    } catch (error) {
+      return {
+        success: false,
+        error: isArabic
+          ? `تعذّر الوصول لقاعدة البيانات: ${(error as { code?: string })?.code || 'network'}. جرّب تاني بعد لحظات.`
+          : `Could not reach the database: ${(error as { code?: string })?.code || 'network'}. Please try again.`
+      };
+    }
+
+    if (!matched) {
+      // آخر محاولة: من القائمة الحيّة (لو الاشتراك اللحظي متاح)
+      matched = students.find(st => (st.email || '').toLowerCase() === clean) || null;
+    }
+
+    if (!matched) {
+      return {
+        success: false,
+        error: isArabic
+          ? '❌ لا يوجد حساب طالب مسجل بهذا البريد. سجّل حساب جديد بكود التفعيل أولاً.'
+          : '❌ No student account found for this email. Please register with an activation code first.'
+      };
+    }
+
+    const promoted = !!matched.isAdmin;
+    setCurrentRole(promoted ? 'STUDENT_ADMIN' : 'STUDENT');
+    localStorage.setItem('ssp_role', promoted ? 'STUDENT_ADMIN' : 'STUDENT');
+    setCurrentStudent(matched);
+    localStorage.setItem('ssp_student_id', matched.id);
+    localStorage.setItem('ssp_student_email', clean);
+    setActiveTab('student_dashboard');
+    showToast(
+      isArabic
+        ? `أهلاً بك يا ${matched.fullNameAr || matched.fullName}! تم فتح صفحتك الرئيسية.`
+        : `Welcome ${matched.fullName}! Launched your home dashboard.`
+    );
+    return { success: true };
   };
 
   // Student Registration Handler: Requires Full Name, Email, Password, Activation Code
@@ -268,7 +257,32 @@ export const App: React.FC = () => {
     phoneNumber?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     const cleanCode = data.activationCode.trim().toUpperCase();
-    const matchedCode = activationCodes.find(c => c.code.toUpperCase() === cleanCode);
+
+    // 1) الإيميل لازم يكون فريد على مستوى قاعدة البيانات كلها
+    try {
+      const alreadyRegistered = await findStudentByEmail(data.email);
+      if (alreadyRegistered) {
+        return {
+          success: false,
+          error: isArabic
+            ? '❌ البريد الإلكتروني ده مسجّل بالفعل. جرّب تسجيل الدخول.'
+            : '❌ This email is already registered. Try signing in instead.'
+        };
+      }
+    } catch {
+      /* لو الفحص فشل لأسباب شبكة، نكمل — والـ rules هتمنع التكرار */
+    }
+
+    // 2) كود التفعيل: من قاعدة البيانات المشتركة أولاً
+    let matchedCode: GeneratedActivationCode | null = null;
+    try {
+      matchedCode = await getActivationCode(cleanCode);
+    } catch {
+      matchedCode = null;
+    }
+    if (!matchedCode) {
+      matchedCode = activationCodes.find(c => (c.code || '').toUpperCase() === cleanCode) || null;
+    }
 
     let plan: SubscriptionPlan = 'Pro';
     let durationMonths = 6;
@@ -380,34 +394,25 @@ export const App: React.FC = () => {
       ]
     };
 
-    // Add to students list immediately (instantly visible in the admin dashboard)
-    setStudents(prev => [newStudent, ...prev]);
-
-    // Persist to Firestore. If the cloud write fails (offline / rules), keep it in a
-    // local queue so the admin can still see it and it syncs later.
-    const saved = await saveStudent(newStudent);
+    // 3) الحفظ في قاعدة البيانات المشتركة — قبل أي وعد للطالب بالنجاح
+    const saved = await upsertStudent(newStudent);
     if (!saved.ok) {
-      queuePendingStudent(newStudent);
-      showToast(
-        isArabic
-          ? `تم إنشاء الحساب على هذا الجهاز. (تعذّر الحفظ السحابي: ${saved.error}) — سيتم الرفع تلقائياً عند عودة الاتصال.`
-          : `Account created on this device. (Cloud save failed: ${saved.error}) — it will sync automatically once the connection is back.`
-      );
+      return {
+        success: false,
+        error: isArabic
+          ? `❌ تعذّر إنشاء الحساب في قاعدة البيانات (${saved.error}). راجع قواعد Firestore أو حاول تاني.`
+          : `❌ Could not create the account in the database (${saved.error}). Check Firestore rules or retry.`
+      };
     }
 
-    // Mark activation code as redeemed
-    setActivationCodes(prev => prev.map(c => {
-      if (c.code.toUpperCase() === cleanCode) {
-        return {
-          ...c,
-          status: 'Redeemed',
-          assignedStudentId: newStudentId,
-          assignedStudentName: data.fullName,
-          redeemedAt: nowIso
-        };
-      }
-      return c;
-    }));
+    setStudents(prev => [newStudent, ...prev.filter(st => st.id !== newStudent.id)]);
+
+    // Mark activation code as redeemed (shared DB — so it can't be reused on another device)
+    await markCodeRedeemed(cleanCode, {
+      id: newStudentInternalId,
+      studentId: newStudentId,
+      fullName: data.fullName
+    });
 
     // Add immutable audit log entry
     const newAuditLog: AuditLog = {
@@ -424,11 +429,13 @@ export const App: React.FC = () => {
       timestamp: nowIso
     };
     setAuditLogs(prev => [newAuditLog, ...prev]);
+    await pushAuditLog(newAuditLog);
 
     // Set active student and switch to student dashboard
     setCurrentStudent(newStudent);
     setCurrentRole('STUDENT');
     localStorage.setItem('ssp_student_id', newStudentInternalId);
+    localStorage.setItem('ssp_student_email', data.email.trim().toLowerCase());
     setActiveTab('student_dashboard');
 
     showToast(
@@ -448,6 +455,7 @@ export const App: React.FC = () => {
     localStorage.removeItem('ssp_admin_email');
     localStorage.removeItem('ssp_role');
     localStorage.removeItem('ssp_student_id');
+    localStorage.removeItem('ssp_student_email');
     setCurrentStudent(null);
     setActiveTab('login');
     showToast(
@@ -458,8 +466,16 @@ export const App: React.FC = () => {
   };
 
   // Generate Activation Code Handler (Super Admin)
-  const handleGenerateCode = (newCode: GeneratedActivationCode) => {
-    setActivationCodes(prev => [newCode, ...prev]);
+  const handleGenerateCode = async (newCode: GeneratedActivationCode) => {
+    const saved = await saveActivationCode(newCode);
+    setActivationCodes(prev => [newCode, ...prev.filter(c => c.id !== newCode.id)]);
+    if (!saved.ok) {
+      showToast(
+        isArabic
+          ? `⚠️ تم إنشاء الكود محلياً لكن الحفظ في قاعدة البيانات فشل (${saved.error}).`
+          : `⚠️ Code created locally but the database write failed (${saved.error}).`
+      );
+    }
 
     // Log the creation in Audit Trail
     const newAuditLog: AuditLog = {
@@ -477,6 +493,7 @@ export const App: React.FC = () => {
     };
 
     setAuditLogs(prev => [newAuditLog, ...prev]);
+    pushAuditLog(newAuditLog);
 
     showToast(
       isArabic 
@@ -486,7 +503,8 @@ export const App: React.FC = () => {
   };
 
   // Revoke Activation Code Handler
-  const handleRevokeCode = (codeId: string) => {
+  const handleRevokeCode = async (codeId: string) => {
+    await revokeActivationCode(codeId);
     setActivationCodes(prev => prev.map(c => c.id === codeId ? { ...c, status: 'Revoked' } : c));
     showToast(isArabic ? 'تم إلغاء تفعيل الكود بنجاح.' : 'Code revoked successfully.');
   };
@@ -625,47 +643,44 @@ export const App: React.FC = () => {
   /* ============================================================
      DELETE STUDENT (Super Admin only) + immutable audit entry
      ============================================================ */
-  /** Fire-and-forget cloud write for a student document */
+  /** Persist a student document to the shared database */
   const syncStudentToCloud = (student: Student) => {
-    if (!cloudConnected) return;
-    saveStudent(student);
+    upsertStudent(student);
   };
 
   const handleDeleteStudent = async (student: Student) => {
-    // 1) «شاهد قبر» محلي: الطالب ده مش هيرجع تاني مهما جاء من السيرفر
-    markDeleted(student.id);
-    removePendingStudent(student.id);
-
-    // 2) إخفاء فوري من الواجهة
-    setStudents(prev => prev.filter(s => s.id !== student.id));
-
-    // 3) حذف من Firestore — لو فشل بنرجّع الطالب ونوضّح السبب
-    const cloudResult = await deleteStudentCloud(student);
-    if (!cloudResult.ok) {
-      unmarkDeleted(student.id);
-      setStudents(prev => [student, ...prev.filter(s => s.id !== student.id)]);
-      setCloudError(
+    // 1) حذف من قاعدة البيانات المشتركة الأول — هو المصدر الوحيد
+    const result = await removeStudent(student);
+    if (!result.ok) {
+      setDataError(
         isArabic
-          ? `فشل حذف الطالب من السحابة: ${cloudResult.error}. الحذف اتلغى عشان البيانات متضيعش.`
-          : `Cloud deletion failed: ${cloudResult.error}. The delete was rolled back to avoid data loss.`
+          ? `فشل حذف الطالب: ${result.error}. مفيش أي حاجة اتغيرت.`
+          : `Delete failed: ${result.error}. Nothing was changed.`
       );
       showToast(
         isArabic
-          ? `❌ ماقدرتش أحذف (${student.fullNameAr || student.fullName}) من السحابة: ${cloudResult.error}`
-          : `❌ Could not delete (${student.fullName}) from the cloud: ${cloudResult.error}`
+          ? `❌ ماقدرتش أحذف (${student.fullNameAr || student.fullName}): ${result.error}`
+          : `❌ Could not delete (${student.fullName}): ${result.error}`
       );
       return;
     }
 
-    // 4) اتأكدنا إن المستند مش موجود (مش مجرد إرسال) قبل ما نعلن النجاح
-    const verified = await deleteStudentCloud(student);
-    if (!verified.ok) {
-      setCloudError(
+    // 2) تأكيد فعلي إن المستند اختفى من السيرفر
+    const gone = await verifyDeleted(student.id);
+    if (!gone) {
+      setDataError(
         isArabic
-          ? `تعذّر التأكد من الحذف: ${verified.error}`
-          : `Could not verify the deletion: ${verified.error}`
+          ? 'السيرفر لسه بيرجّع الطالب بعد الحذف — راجع قواعد Firestore.'
+          : 'The server still returns this student after deletion — check Firestore rules.'
       );
+      return;
     }
+
+    // 3) تحديث الواجهة بعد نجاح الحذف
+    setStudents(prev => prev.filter(s => s.id !== student.id));
+
+    // 4) تنظيف ذاكرة المتصفح القديمة (نسخ ما قبل الربط بالسحابة)
+    forgetLocalStudent(student.id);
 
     if (currentStudent && currentStudent.id === student.id) {
       setCurrentStudent(null);
@@ -691,9 +706,9 @@ export const App: React.FC = () => {
       timestamp: new Date().toISOString()
     };
     setAuditLogs(prev => [newAuditLog, ...prev]);
-    if (cloudConnected) pushAuditLog(newAuditLog);
+    pushAuditLog(newAuditLog);
 
-    setCloudError(null);
+    setDataError(null);
     showToast(
       isArabic
         ? `تم حذف حساب الطالب (${student.fullNameAr || student.fullName}) نهائياً من السحابة وتوثيق العملية.`
@@ -706,12 +721,13 @@ export const App: React.FC = () => {
      ============================================================ */
   const handleBulkDeleteTestStudents = async (list: Student[]) => {
     if (list.length === 0) return;
-    list.forEach(st => markDeleted(st.id));
-    setStudents(prev => prev.filter(s => !list.some(d => d.id === s.id)));
-
-    const removed = await deleteStudentsBatch(list);
+    const removed = await removeStudentsBatch(list);
+    if (removed > 0) {
+      setStudents(prev => prev.filter(s => !list.slice(0, removed).some(d => d.id === s.id)));
+      list.forEach(st => forgetLocalStudent(st.id));
+    }
     if (removed < list.length) {
-      setCloudError(
+      setDataError(
         isArabic
           ? `تم حذف ${removed} من ${list.length}. الباقي فشل بسبب الصلاحيات — راجع قواعد Firestore.`
           : `Deleted ${removed} of ${list.length}. The rest failed due to permissions — check your Firestore rules.`
@@ -856,9 +872,9 @@ export const App: React.FC = () => {
       })
     );
 
-    if (currentStudent && cloudConnected) {
+    if (currentStudent) {
       const planStudent = students.find(st => st.id === currentStudent.id);
-      if (planStudent) saveStudent({ ...planStudent, generatedPlan: plan });
+      if (planStudent) upsertStudent({ ...planStudent, generatedPlan: plan });
     }
 
     showToast(
@@ -906,6 +922,7 @@ export const App: React.FC = () => {
         isArabic={isArabic}
         activeCodes={activationCodes}
         onLoginSuccess={handleLoginSuccess}
+        onStudentSignIn={handleStudentSignIn}
         onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
         onToggleLanguage={toggleLanguage}
@@ -920,6 +937,7 @@ export const App: React.FC = () => {
         isArabic={isArabic}
         activeCodes={activationCodes}
         onLoginSuccess={handleLoginSuccess}
+        onStudentSignIn={handleStudentSignIn}
         onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
         onToggleLanguage={toggleLanguage}
@@ -960,6 +978,7 @@ export const App: React.FC = () => {
           isArabic={isArabic}
           activeCodes={activationCodes}
           onLoginSuccess={handleLoginSuccess}
+          onStudentSignIn={handleStudentSignIn}
           onRegisterStudent={handleRegisterStudent}
           onGoToActivation={() => setActiveTab('activation_page')}
           onToggleLanguage={toggleLanguage}
@@ -991,7 +1010,7 @@ export const App: React.FC = () => {
         onUpdateStudent={handleUpdateStudentProfile}
         onSavePlan={handleSaveGeneratedPlan}
         onUploadBookFile={(file, bookId) =>
-          currentStudent && cloudConnected ? uploadBookFile(currentStudent.id, bookId, file) : Promise.resolve(null)
+          currentStudent ? uploadBook(currentStudent.id, bookId, file) : Promise.resolve(null)
         }
         onDeleteBookFile={deleteBookFile}
       />
@@ -1122,12 +1141,18 @@ export const App: React.FC = () => {
               }`}
               title={
                 cloudConnected
-                  ? (isArabic ? 'متصل بـ Firebase' : 'Connected to Firebase')
-                  : (isArabic ? 'وضع محلي — Firebase غير متاح' : 'Local mode — Firebase unavailable')
+                  ? (isArabic ? `متصل بقاعدة البيانات المشتركة${sync.total !== undefined ? ` (${sync.total} طالب)` : ''}` : `Connected to the shared database${sync.total !== undefined ? ` (${sync.total} students)` : ''}`)
+                  : sync.status === 'connecting'
+                  ? (isArabic ? 'جاري الاتصال بقاعدة البيانات...' : 'Connecting to the database...')
+                  : (isArabic ? 'غير متصل بقاعدة البيانات — البيانات مش هتتزامن' : 'Database offline — data will not sync')
               }
             >
               {cloudConnected ? <Cloud className="w-3.5 h-3.5" /> : <CloudOff className="w-3.5 h-3.5" />}
-              {cloudSyncing ? '...' : cloudConnected ? (isArabic ? 'سحابي' : 'Cloud') : (isArabic ? 'محلي' : 'Local')}
+              {sync.status === 'connecting'
+                ? (isArabic ? 'جاري الاتصال...' : 'Connecting...')
+                : cloudConnected
+                ? (isArabic ? 'مزامنة' : 'Synced')
+                : (isArabic ? 'غير متصل' : 'Offline')}
             </span>
 
             <button
@@ -1179,6 +1204,32 @@ export const App: React.FC = () => {
       {/* Main Body Content (padding bottom so the mobile nav never covers content) */}
       <main className="max-w-7xl mx-auto w-full p-3 sm:p-6 lg:p-8 flex-1 space-y-6 pb-24 md:pb-8">
 
+        {/* Data-layer banner: shows exactly why the shared DB is not reachable */}
+        {(activeTab === 'students' || activeTab === 'delete_students' || activeTab === 'audit_logs') && !cloudConnected && (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-950/30 p-3.5 space-y-1.5">
+            <div className="flex items-center gap-2 text-amber-300 text-xs font-bold">
+              {sync.status === 'connecting' ? <Cloud className="w-4 h-4 animate-pulse" /> : <CloudOff className="w-4 h-4" />}
+              {sync.status === 'connecting'
+                ? (isArabic ? 'جاري الاتصال بقاعدة البيانات المشتركة...' : 'Connecting to the shared database...')
+                : (isArabic ? 'مش متصل بقاعدة البيانات المشتركة' : 'Not connected to the shared database')}
+            </div>
+            <p className="text-[11px] text-amber-100/90 leading-relaxed">
+              {dataError
+                ? dataError
+                : (isArabic
+                    ? 'لو الحالة دي مستمرة: Firebase Console → Firestore → Rules → الصق محتوى firestore.rules → Publish.'
+                    : 'If this persists: Firebase Console → Firestore → Rules → paste firestore.rules → Publish.')}
+            </p>
+            {!studentsLoaded && sync.status !== 'connecting' && (
+              <p className="text-[11px] text-slate-400">
+                {isArabic
+                  ? 'التطبيق مش بيعرض بيانات تجريبية — كل الطلاب اللي هتشوفهم جايين من قاعدة البيانات بس.'
+                  : 'No demo data is shown — every student you see comes from the database only.'}
+              </p>
+            )}
+          </div>
+        )}
+
         {activeTab === 'students' && (
           <StudentMonitoring
             students={students}
@@ -1215,7 +1266,7 @@ export const App: React.FC = () => {
             students={students}
             isArabic={isArabic}
             cloudConnected={cloudConnected}
-            cloudError={cloudError}
+            cloudError={dataError}
             onDeleteStudent={handleDeleteStudent}
             onBulkDeleteDemo={handleBulkDeleteTestStudents}
           />

@@ -27,6 +27,8 @@ export interface LoginPageProps {
   isArabic: boolean;
   activeCodes?: GeneratedActivationCode[];
   onLoginSuccess: (role: UserRole, userEmail: string) => void;
+  /** تسجيل دخول الطالب من قاعدة البيانات المشتركة */
+  onStudentSignIn?: (email: string) => Promise<{ success: boolean; error?: string }>;
   onRegisterStudent: (data: {
     fullName: string;
     email: string;
@@ -44,6 +46,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   isArabic,
   activeCodes = [],
   onLoginSuccess,
+  onStudentSignIn,
   onRegisterStudent,
   onGoToActivation,
   onToggleLanguage
@@ -167,7 +170,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       // CASE 3: STUDENT PORTAL - SIGN IN
       if (studentAuthMode === 'signin') {
         if (cleanEmail && password.length >= 4) {
-          onLoginSuccess('STUDENT', cleanEmail);
+          if (onStudentSignIn) {
+            const result = await onStudentSignIn(cleanEmail);
+            if (!result.success) {
+              setErrorMessage(result.error || (isArabic ? 'تعذّر تسجيل الدخول.' : 'Sign in failed.'));
+            } else {
+              setSuccessMessage(
+                isArabic ? '✅ تم تسجيل الدخول بنجاح، جاري فتح صفحتك...' : '✅ Signed in successfully, opening your page...'
+              );
+            }
+          } else {
+            onLoginSuccess('STUDENT', cleanEmail);
+          }
         } else {
           setErrorMessage(
             isArabic
