@@ -42,7 +42,7 @@ const DAY_NAMES_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'ال�
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** أقصى حجم مسموح للكتاب */
-export const MAX_FILE_SIZE_MB = 100;
+export const MAX_FILE_SIZE_MB = 200;
 
 const todayIso = () => {
   const d = new Date();
