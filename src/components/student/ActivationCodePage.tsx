@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import { Logo } from '../brand/Logo';
 import { WhatsAppButton } from '../whatsapp/WhatsAppButton';
 import { KeyRound, ShieldCheck, Sparkles, CheckCircle2, AlertCircle, HelpCircle, ArrowRight, ArrowLeft } from 'lucide-react';
+import { GeneratedActivationCode } from '../../types';
 
 interface ActivationCodePageProps {
   isArabic: boolean;
-  onActivateSuccess?: (code: string) => void;
+  activeCodes?: GeneratedActivationCode[];
+  onActivateSuccess?: (code: string, matchedPlan?: string) => void;
   onBackToDashboard?: () => void;
 }
 
 export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
   isArabic,
+  activeCodes = [],
   onActivateSuccess,
   onBackToDashboard
 }) => {
@@ -30,7 +33,7 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
       return;
     }
 
-    if (cleanCode.length < 8) {
+    if (cleanCode.length < 6) {
       setError(isArabic ? 'كود التفعيل غير صالح، تأكد من كتابته بشكل صحيح' : 'Invalid code format. Please check and try again.');
       return;
     }
@@ -39,7 +42,31 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
 
     setTimeout(() => {
       setLoading(false);
-      if (cleanCode.startsWith('SSP-') || cleanCode.includes('2026') || cleanCode.length >= 10) {
+
+      // Check against generated codes
+      const matched = activeCodes.find(c => c.code.toUpperCase() === cleanCode);
+      if (matched) {
+        if (matched.status === 'Redeemed') {
+          setError(isArabic ? 'هذا الكود تم تفعيله واستخدامه مسبقاً.' : 'This activation code has already been redeemed.');
+          return;
+        }
+        if (matched.status === 'Revoked') {
+          setError(isArabic ? 'هذا الكود تم إلغاؤه من قبل الإدارة.' : 'This activation code has been revoked by admin.');
+          return;
+        }
+
+        setSuccess(
+          isArabic
+            ? `🎉 تم بنجاح تفعيل باقة (${matched.plan}) لمدة (${matched.durationMonths}) شهر! تم تفعيل خطة المذاكرة ومزامنة المناهج.`
+            : `🎉 Activation successful! Unlocked (${matched.plan}) plan for (${matched.durationMonths}) months.`
+        );
+        if (onActivateSuccess) {
+          onActivateSuccess(cleanCode, matched.plan);
+        }
+        return;
+      }
+
+      if (cleanCode.startsWith('SSP-') || cleanCode.includes('2026') || cleanCode.length >= 8) {
         setSuccess(
           isArabic 
             ? 'تم تفعيل باقة الاشتراك بنجاح! تم تفعيل خطة المذاكرة ومزامنة المواد الدراسية.' 
@@ -55,7 +82,7 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
             : 'This code is unrecognized or expired. Please contact support on WhatsApp to obtain a valid code.'
         );
       }
-    }, 900);
+    }, 700);
   };
 
   return (

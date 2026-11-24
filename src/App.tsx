@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { Student, AuditLog, ViewTab, UserRole } from './types';
-import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS } from './data/mockData';
+import React, { useState, useEffect } from 'react';
+import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode } from './types';
+import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS, INITIAL_ACTIVATION_CODES } from './data/mockData';
 import { Logo } from './components/brand/Logo';
 import { WhatsAppButton } from './components/whatsapp/WhatsAppButton';
 import { StudentMonitoring } from './components/admin/StudentMonitoring';
+import { ActivationCodeGenerator } from './components/admin/ActivationCodeGenerator';
 import { StudentProfileModal } from './components/admin/StudentProfileModal';
 import { AdminEditModal } from './components/admin/AdminEditModal';
 import { PasswordResetModal } from './components/admin/PasswordResetModal';
@@ -19,20 +20,35 @@ import {
   Globe, 
   LogOut, 
   Eye, 
-  UserCircle, 
   ShieldCheck, 
-  ExternalLink 
+  PlusCircle,
+  Sparkles
 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  // Global App State
+  // Global App & Language State
   const [isArabic, setIsArabic] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<ViewTab>('students');
-  const [currentRole, setCurrentRole] = useState<UserRole>('SUPER_ADMIN');
+
+  // Authentication State: Protected by default
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('ssp_admin_auth') === 'true';
+  });
+  const [adminEmail, setAdminEmail] = useState<string>(() => {
+    return localStorage.getItem('ssp_admin_email') || 'adam.sherif.aboasy@gmail.com';
+  });
+  const [currentRole, setCurrentRole] = useState<UserRole>(() => {
+    return localStorage.getItem('ssp_admin_auth') === 'true' ? 'SUPER_ADMIN' : 'STUDENT';
+  });
+
+  // Active View Tab: Defaults to 'login' if not authenticated as admin
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => {
+    return localStorage.getItem('ssp_admin_auth') === 'true' ? 'students' : 'login';
+  });
 
   // Data State
   const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
+  const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>(INITIAL_ACTIVATION_CODES);
 
   // Selected Student & Modals State
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -56,18 +72,108 @@ export const App: React.FC = () => {
     document.documentElement.lang = nextLang ? 'ar' : 'en';
   };
 
+  // Login Success Handler (Guaranteed Super Admin Authorization)
+  const handleLoginSuccess = (role: UserRole, userEmail: string) => {
+    if (role === 'SUPER_ADMIN') {
+      setIsAuthenticated(true);
+      setCurrentRole('SUPER_ADMIN');
+      setAdminEmail(userEmail);
+      localStorage.setItem('ssp_admin_auth', 'true');
+      localStorage.setItem('ssp_admin_email', userEmail);
+      setActiveTab('students');
+      showToast(
+        isArabic
+          ? 'تم تسجيل الدخول بنجاح! مرحباً بك يا أستاذ آدم في لوحة الإدارة العليا.'
+          : 'Authenticated successfully! Welcome back to the Super Admin Dashboard.'
+      );
+    } else {
+      setCurrentRole('STUDENT');
+      setActiveTab('student_dashboard');
+      showToast(
+        isArabic
+          ? 'تم تسجيل الدخول بنجاح لبوابة الطالب.'
+          : 'Welcome to the Student Portal.'
+      );
+    }
+  };
+
+  // Logout Handler (Locks the dashboard)
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('ssp_admin_auth');
+    localStorage.removeItem('ssp_admin_email');
+    setActiveTab('login');
+    showToast(
+      isArabic
+        ? 'تم تسجيل الخروج وقفل لوحة الإدارة العليا بنجاح.'
+        : 'Logged out and locked the Super Admin session.'
+    );
+  };
+
+  // Generate Activation Code Handler
+  const handleGenerateCode = (newCode: GeneratedActivationCode) => {
+    setActivationCodes(prev => [newCode, ...prev]);
+
+    // Log the creation in Audit Trail
+    const newAuditLog: AuditLog = {
+      id: `log-code-gen-${Date.now()}`,
+      adminId: 'ADMIN-SUPER-ADAM',
+      adminName: 'Adam Sherif (Super Admin)',
+      targetStudentId: newCode.assignedStudentId || 'GENERAL-VOUCHER',
+      studentName: newCode.assignedStudentName || 'Unassigned Voucher',
+      actionSource: 'ADMIN',
+      changedField: 'activationCodeGenerated',
+      oldValue: 'None',
+      newValue: `Generated Code: ${newCode.code} (${newCode.plan} - ${newCode.durationMonths} Mo)`,
+      reason: newCode.notes || 'Super Admin generated new activation voucher code',
+      timestamp: new Date().toISOString()
+    };
+
+    setAuditLogs(prev => [newAuditLog, ...prev]);
+
+    showToast(
+      isArabic 
+        ? `تم إنشاء كود التفعيل (${newCode.code}) بنجاح وتوثيقه في سجل العمليات!` 
+        : `Activation code (${newCode.code}) generated and recorded in audit log!`
+    );
+  };
+
+  // Revoke Activation Code Handler
+  const handleRevokeCode = (codeId: string) => {
+    setActivationCodes(prev => prev.map(c => c.id === codeId ? { ...c, status: 'Revoked' } : c));
+    showToast(isArabic ? 'تم إلغاء تفعيل الكود بنجاح.' : 'Code revoked successfully.');
+  };
+
+  // Student Redeemed Code Handler
+  const handleStudentRedeemCode = (redeemedCodeString: string, matchedPlan?: string) => {
+    setActivationCodes(prev => prev.map(c => {
+      if (c.code.toUpperCase() === redeemedCodeString.toUpperCase()) {
+        return {
+          ...c,
+          status: 'Redeemed',
+          redeemedAt: new Date().toISOString()
+        };
+      }
+      return c;
+    }));
+
+    showToast(
+      isArabic
+        ? `تم تفعيل الكود (${redeemedCodeString}) بنجاح! تم ترقية باقة الطالب.`
+        : `Code (${redeemedCodeString}) successfully redeemed!`
+    );
+  };
+
   // Admin Save Modifications with Immutable Audit Log Generation
   const handleSaveStudentModifications = (
     updatedStudent: Student,
     newLogs: Omit<AuditLog, 'id' | 'timestamp'>[]
   ) => {
-    // 1. Update students array
     setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
     if (selectedStudent && selectedStudent.id === updatedStudent.id) {
       setSelectedStudent(updatedStudent);
     }
 
-    // 2. Prepend immutable audit logs with generated IDs and timestamps
     const nowIso = new Date().toISOString();
     const finalizedLogs: AuditLog[] = newLogs.map((l, index) => ({
       ...l,
@@ -102,11 +208,10 @@ export const App: React.FC = () => {
       setSelectedStudent(updatedStudent);
     }
 
-    // Log the revocation in Audit Trail
     const newAuditLog: AuditLog = {
       id: `log-dev-revoke-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-01',
-      adminName: 'Super Admin',
+      adminId: 'ADMIN-SUPER-ADAM',
+      adminName: 'Adam Sherif (Super Admin)',
       targetStudentId: targetStudent.studentId,
       studentName: targetStudent.fullName,
       actionSource: 'ADMIN',
@@ -130,8 +235,8 @@ export const App: React.FC = () => {
   const handleLogPasswordReset = (studentId: string, studentName: string) => {
     const newAuditLog: AuditLog = {
       id: `log-pwd-rst-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-01',
-      adminName: 'Super Admin',
+      adminId: 'ADMIN-SUPER-ADAM',
+      adminName: 'Adam Sherif (Super Admin)',
       targetStudentId: studentId,
       studentName: studentName,
       actionSource: 'ADMIN',
@@ -151,6 +256,30 @@ export const App: React.FC = () => {
     );
   };
 
+  // ROUTE PROTECTION: If trying to access Super Admin views without authentication, render Login Page
+  const isProtectedAdminTab = activeTab === 'students' || activeTab === 'code_generator' || activeTab === 'audit_logs';
+
+  if (!isAuthenticated && isProtectedAdminTab) {
+    return (
+      <LoginPage
+        isArabic={isArabic}
+        onLoginSuccess={handleLoginSuccess}
+        onGoToActivation={() => setActiveTab('activation_page')}
+      />
+    );
+  }
+
+  // IF ON LOGIN PAGE:
+  if (activeTab === 'login') {
+    return (
+      <LoginPage
+        isArabic={isArabic}
+        onLoginSuccess={handleLoginSuccess}
+        onGoToActivation={() => setActiveTab('activation_page')}
+      />
+    );
+  }
+
   // IF IN STUDENT SUPPORT MODE: Render the dedicated isolated support experience
   if (supportModeStudent) {
     return (
@@ -167,14 +296,9 @@ export const App: React.FC = () => {
     return (
       <ActivationCodePage
         isArabic={isArabic}
-        onBackToDashboard={() => setActiveTab('students')}
-        onActivateSuccess={(code) => {
-          showToast(
-            isArabic 
-              ? `تم تفعيل الكود (${code}) بنجاح! تم ترقية الحساب وتفعيل المناهج.` 
-              : `Code (${code}) activated successfully!`
-          );
-        }}
+        activeCodes={activationCodes}
+        onBackToDashboard={() => setActiveTab(isAuthenticated ? 'students' : 'login')}
+        onActivateSuccess={handleStudentRedeemCode}
       />
     );
   }
@@ -187,30 +311,20 @@ export const App: React.FC = () => {
         student={defaultStudent}
         isArabic={isArabic}
         onGoToActivation={() => setActiveTab('activation_page')}
-        onSwitchToAdmin={() => setActiveTab('students')}
-      />
-    );
-  }
-
-  // IF ON LOGIN PAGE:
-  if (activeTab === 'login') {
-    return (
-      <LoginPage
-        isArabic={isArabic}
-        onLoginSuccess={(role) => {
-          setCurrentRole(role);
-          if (role === 'SUPER_ADMIN') {
+        onSwitchToAdmin={() => {
+          if (isAuthenticated) {
             setActiveTab('students');
           } else {
-            setActiveTab('student_dashboard');
+            setActiveTab('login');
           }
         }}
-        onGoToActivation={() => setActiveTab('activation_page')}
       />
     );
   }
 
-  // DEFAULT: SUPER ADMIN DASHBOARD
+  // DEFAULT: SUPER ADMIN DASHBOARD (AUTHENTICATED ONLY)
+  const activeCodesCount = activationCodes.filter(c => c.status === 'Active').length;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-brand-blue selection:text-white">
       
@@ -236,9 +350,11 @@ export const App: React.FC = () => {
 
           {/* Navigation Tabs */}
           <nav className="hidden md:flex items-center gap-1.5 bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800">
+            
+            {/* Tab 1: Student Monitoring */}
             <button
               onClick={() => setActiveTab('students')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
                 activeTab === 'students'
                   ? 'bg-brand-blue text-white shadow-glow-blue/40'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900'
@@ -248,29 +364,48 @@ export const App: React.FC = () => {
               <span>{isArabic ? 'مراقبة ومتابعة الطلاب' : 'Student Monitoring'}</span>
             </button>
 
+            {/* Tab 2: Activation Code Generator (Requested Feature) */}
+            <button
+              onClick={() => setActiveTab('code_generator')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'code_generator'
+                  ? 'bg-gradient-to-r from-brand-blue to-brand-purple text-white shadow-glow-combo'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              <KeyRound className="w-4 h-4 text-brand-whatsapp" />
+              <span>{isArabic ? 'إنشاء أكواد التفعيل' : 'Code Generator'}</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">
+                {activeCodesCount}
+              </span>
+            </button>
+
+            {/* Tab 3: Security Audit Logs */}
             <button
               onClick={() => setActiveTab('audit_logs')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
                 activeTab === 'audit_logs'
                   ? 'bg-brand-purple text-white shadow-glow-purple/40'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900'
               }`}
             >
               <FileCheck2 className="w-4 h-4" />
-              <span>{isArabic ? 'سجلات التدقيق الأمني' : 'Audit Logs'}</span>
+              <span>{isArabic ? 'سجلات التدقيق' : 'Audit Logs'}</span>
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-950 text-purple-300 border border-purple-500/40">
                 {auditLogs.length}
               </span>
             </button>
 
+            {/* Student Activation Page Shortcut */}
             <button
               onClick={() => setActiveTab('activation_page')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
             >
-              <KeyRound className="w-3.5 h-3.5 text-brand-whatsapp" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
               <span>{isArabic ? 'صفحة التفعيل' : 'Activation Code'}</span>
             </button>
 
+            {/* Student View Shortcut */}
             <button
               onClick={() => setActiveTab('student_dashboard')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
@@ -280,7 +415,7 @@ export const App: React.FC = () => {
             </button>
           </nav>
 
-          {/* Right Header Tools: Language Switcher, WhatsApp Button & Profile */}
+          {/* Right Header Tools: Language Switcher, WhatsApp Support, Admin Profile & Logout */}
           <div className="flex items-center gap-3">
             
             {/* Quick WhatsApp Support Link */}
@@ -298,15 +433,19 @@ export const App: React.FC = () => {
               <span>{isArabic ? 'English' : 'عربي'}</span>
             </button>
 
-            {/* Admin Profile Pill */}
-            <div className="flex items-center gap-2 pl-2 rtl:pl-0 rtl:pr-2 border-l rtl:border-l-0 rtl:border-r border-slate-800">
+            {/* Super Admin Verified Identity Badge & Logout */}
+            <div className="flex items-center gap-2.5 pl-2 rtl:pl-0 rtl:pr-2 border-l rtl:border-l-0 rtl:border-r border-slate-800">
+              <div className="hidden sm:flex flex-col text-right rtl:text-left text-xs">
+                <span className="font-bold text-white leading-none">Adam Sherif</span>
+                <span className="text-[10px] text-purple-400 font-mono mt-0.5" dir="ltr">{adminEmail}</span>
+              </div>
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-purple to-purple-800 flex items-center justify-center font-bold text-xs text-white shadow-glow-purple/20">
-                SA
+                AS
               </div>
               <button
-                onClick={() => setActiveTab('login')}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 transition-colors"
-                title={isArabic ? 'تسجيل الخروج' : 'Sign Out'}
+                onClick={handleLogout}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 transition-colors"
+                title={isArabic ? 'تسجيل الخروج وقفل اللوحة' : 'Lock & Sign Out'}
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -320,19 +459,25 @@ export const App: React.FC = () => {
         <div className="md:hidden flex items-center justify-around pt-3 border-t border-slate-800/80 mt-2 text-xs">
           <button
             onClick={() => setActiveTab('students')}
-            className={`py-1.5 px-3 rounded-lg font-bold ${activeTab === 'students' ? 'text-brand-blue-electric bg-brand-blue/15' : 'text-slate-400'}`}
+            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'students' ? 'text-brand-blue-electric bg-brand-blue/15' : 'text-slate-400'}`}
           >
-            {isArabic ? 'مراقبة الطلاب' : 'Students'}
+            {isArabic ? 'الطلاب' : 'Students'}
+          </button>
+          <button
+            onClick={() => setActiveTab('code_generator')}
+            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'code_generator' ? 'text-brand-whatsapp bg-brand-whatsapp/15' : 'text-slate-400'}`}
+          >
+            {isArabic ? 'توليد الأكواد' : 'Codes'}
           </button>
           <button
             onClick={() => setActiveTab('audit_logs')}
-            className={`py-1.5 px-3 rounded-lg font-bold ${activeTab === 'audit_logs' ? 'text-brand-purple-light bg-brand-purple/15' : 'text-slate-400'}`}
+            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'audit_logs' ? 'text-brand-purple-light bg-brand-purple/15' : 'text-slate-400'}`}
           >
-            {isArabic ? 'سجل التدقيق' : 'Audit Logs'}
+            {isArabic ? 'التدقيق' : 'Audit'}
           </button>
           <button
             onClick={() => setActiveTab('activation_page')}
-            className={`py-1.5 px-3 rounded-lg font-bold ${activeTab === 'activation_page' ? 'text-brand-whatsapp bg-brand-whatsapp/15' : 'text-slate-400'}`}
+            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'activation_page' ? 'text-amber-400 bg-amber-400/15' : 'text-slate-400'}`}
           >
             {isArabic ? 'التفعيل' : 'Activate'}
           </button>
@@ -354,7 +499,18 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* VIEW 2: SECURITY AUDIT LOGS SECTION */}
+        {/* VIEW 2: ACTIVATION CODE GENERATOR SECTION */}
+        {activeTab === 'code_generator' && (
+          <ActivationCodeGenerator
+            codes={activationCodes}
+            students={students}
+            isArabic={isArabic}
+            onGenerateCode={handleGenerateCode}
+            onRevokeCode={handleRevokeCode}
+          />
+        )}
+
+        {/* VIEW 3: SECURITY AUDIT LOGS SECTION */}
         {activeTab === 'audit_logs' && (
           <AuditLogViewer
             logs={auditLogs}
@@ -373,7 +529,7 @@ export const App: React.FC = () => {
         <div className="flex items-center gap-4 text-[11px]">
           <span className="text-emerald-400 flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {isArabic ? 'النظام متصل وآمن' : 'System Operational & Secure'}
+            {isArabic ? 'جلسة المشرف العام مؤمنة' : 'Super Admin Session Secured'}
           </span>
           <span>Version 2.4.0-Production</span>
         </div>

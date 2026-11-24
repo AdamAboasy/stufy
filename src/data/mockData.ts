@@ -1,4 +1,4 @@
-import { Student, AuditLog } from '../types';
+import { Student, AuditLog, GeneratedActivationCode } from '../types';
 
 export const INITIAL_STUDENTS: Student[] = [
   {
@@ -913,3 +913,76 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [
     timestamp: '2026-09-02T13:30:00Z',
   }
 ];
+
+export const INITIAL_ACTIVATION_CODES: GeneratedActivationCode[] = [
+  {
+    id: 'code-101',
+    code: 'SSP-PRO-9842-CAIR',
+    plan: 'Pro',
+    durationMonths: 10,
+    maxDevices: 3,
+    status: 'Redeemed',
+    createdAt: '2026-09-01T10:00:00Z',
+    expiresAt: '2027-06-30T23:59:59Z',
+    assignedStudentId: 'STU-2026-8941',
+    assignedStudentName: 'يوسف أحمد منصور',
+    redeemedAt: '2026-09-01T10:35:00Z',
+    notes: 'Vodafone Cash 7749102 (Full Academic Year)',
+    createdByName: 'Adam Sherif (Super Admin)',
+  },
+  {
+    id: 'code-102',
+    code: 'SSP-ELITE-VIP-2026',
+    plan: 'Elite VIP',
+    durationMonths: 12,
+    maxDevices: 3,
+    status: 'Redeemed',
+    createdAt: '2026-08-20T12:00:00Z',
+    expiresAt: '2027-08-19T23:59:59Z',
+    assignedStudentId: 'STU-2026-5120',
+    assignedStudentName: 'مريم خالد السيد',
+    redeemedAt: '2026-08-20T14:20:00Z',
+    notes: 'InstaPay TXN-882194 (Top Honor Student)',
+    createdByName: 'Adam Sherif (Super Admin)',
+  },
+  {
+    id: 'code-103',
+    code: 'SSP-PRO-2026-NOV91',
+    plan: 'Pro',
+    durationMonths: 3,
+    maxDevices: 2,
+    status: 'Active',
+    createdAt: '2026-11-20T14:00:00Z',
+    expiresAt: '2027-02-20T23:59:59Z',
+    notes: 'Ready for activation via WhatsApp support channel',
+    createdByName: 'Adam Sherif (Super Admin)',
+  },
+  {
+    id: 'code-104',
+    code: 'SSP-ELITE-2026-X99B',
+    plan: 'Elite VIP',
+    durationMonths: 6,
+    maxDevices: 3,
+    status: 'Active',
+    createdAt: '2026-11-22T09:30:00Z',
+    expiresAt: '2027-05-22T23:59:59Z',
+    notes: 'Pre-generated voucher for Thanawya revision blitz',
+    createdByName: 'Adam Sherif (Super Admin)',
+  },
+  {
+    id: 'code-105',
+    code: 'SSP-BAS-3310-OCT',
+    plan: 'Basic',
+    durationMonths: 1,
+    maxDevices: 1,
+    status: 'Redeemed',
+    createdAt: '2026-10-10T09:00:00Z',
+    expiresAt: '2026-11-28T23:59:59Z',
+    assignedStudentId: 'STU-2026-3390',
+    assignedStudentName: 'عمر طارق حسن',
+    redeemedAt: '2026-10-10T09:10:00Z',
+    notes: 'Fawry payment reference 559102',
+    createdByName: 'Adam Sherif (Super Admin)',
+  }
+];
+

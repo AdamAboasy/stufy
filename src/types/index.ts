@@ -173,4 +173,21 @@ export interface AuditLog {
   timestamp: string;
 }
 
-export type ViewTab = 'students' | 'audit_logs' | 'activation_page' | 'student_dashboard' | 'login';
+export interface GeneratedActivationCode {
+  id: string;
+  code: string;
+  plan: SubscriptionPlan;
+  durationMonths: number;
+  maxDevices: number;
+  status: 'Active' | 'Redeemed' | 'Revoked' | 'Expired';
+  createdAt: string;
+  expiresAt: string;
+  assignedStudentId?: string;
+  assignedStudentName?: string;
+  redeemedAt?: string;
+  notes?: string;
+  createdByName: string;
+}
+
+export type ViewTab = 'students' | 'code_generator' | 'audit_logs' | 'activation_page' | 'student_dashboard' | 'login';
+

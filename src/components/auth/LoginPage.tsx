@@ -2,11 +2,20 @@ import React, { useState } from 'react';
 import { Logo } from '../brand/Logo';
 import { WhatsAppButton } from '../whatsapp/WhatsAppButton';
 import { UserRole } from '../../types';
-import { Lock, Mail, ShieldCheck, KeyRound, ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { 
+  Lock, 
+  Mail, 
+  ShieldCheck, 
+  KeyRound, 
+  AlertCircle, 
+  CheckCircle2, 
+  ShieldAlert,
+  UserCheck
+} from 'lucide-react';
 
 interface LoginPageProps {
   isArabic: boolean;
-  onLoginSuccess: (role: UserRole) => void;
+  onLoginSuccess: (role: UserRole, userEmail: string) => void;
   onGoToActivation: () => void;
 }
 
@@ -16,20 +25,52 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onGoToActivation
 }) => {
   const [role, setRole] = useState<UserRole>('SUPER_ADMIN');
-  const [email, setEmail] = useState('admin@smartstudyplanner.app');
-  const [password, setPassword] = useState('••••••••••••');
+  const [email, setEmail] = useState('adam.sherif.aboasy@gmail.com');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // Forgot Password Modal
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
 
+  // Exact Authorized Super Admin Credentials
+  const SUPER_ADMIN_EMAIL = 'adam.sherif.aboasy@gmail.com';
+  const SUPER_ADMIN_PASSWORD = 'AdAm@27022010';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     setLoading(true);
+
     setTimeout(() => {
       setLoading(false);
-      onLoginSuccess(role);
-    }, 600);
+      const cleanEmail = email.trim().toLowerCase();
+
+      if (role === 'SUPER_ADMIN') {
+        if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase() && password === SUPER_ADMIN_PASSWORD) {
+          onLoginSuccess('SUPER_ADMIN', cleanEmail);
+        } else {
+          setErrorMessage(
+            isArabic 
+              ? '❌ بيانات الدخول غير صحيحة! هذا القسم مخصص للمشرف العام فقط ولا يمكن الدخول إلا بالحساب المعتمد.' 
+              : '❌ Invalid credentials! Access to the Super Admin Dashboard is strictly restricted to the authorized administrator.'
+          );
+        }
+      } else {
+        // Student Portal Login
+        if (cleanEmail && password.length >= 4) {
+          onLoginSuccess('STUDENT', cleanEmail);
+        } else {
+          setErrorMessage(
+            isArabic
+              ? 'يرجى إدخال البريد الإلكتروني وكلمة المرور الخاصة بحساب الطالب.'
+              : 'Please enter your registered student email and password.'
+          );
+        }
+      }
+    }, 500);
   };
 
   const handleForgotSubmit = (e: React.FormEvent) => {
@@ -75,37 +116,63 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               type="button"
               onClick={() => {
                 setRole('SUPER_ADMIN');
-                setEmail('admin@smartstudyplanner.app');
+                setEmail('adam.sherif.aboasy@gmail.com');
+                setPassword('');
+                setErrorMessage(null);
               }}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 role === 'SUPER_ADMIN'
                   ? 'bg-brand-purple text-white shadow-glow-purple/40'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              {isArabic ? 'الإدارة العليا (Super Admin)' : 'Super Admin'}
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>{isArabic ? 'الإدارة العليا' : 'Super Admin'}</span>
             </button>
             <button
               type="button"
               onClick={() => {
                 setRole('STUDENT');
                 setEmail('youssef.mansour@example.com');
+                setPassword('');
+                setErrorMessage(null);
               }}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                 role === 'STUDENT'
                   ? 'bg-brand-blue text-white shadow-glow-blue/40'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              {isArabic ? 'حساب الطالب' : 'Student Portal'}
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>{isArabic ? 'بوابة الطالب' : 'Student Portal'}</span>
             </button>
           </div>
+
+          {/* Security Alert Notice for Admin Role */}
+          {role === 'SUPER_ADMIN' && (
+            <div className="mb-4 p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 text-[11px] text-purple-200 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-brand-purple-light shrink-0" />
+              <span>
+                {isArabic 
+                  ? 'منطقة محمية أمنياً: تتطلب الاعتماد الرسمي للمشرف العام فقط.' 
+                  : 'Protected Area: Restricted to the authorized Super Admin account.'}
+              </span>
+            </div>
+          )}
+
+          {/* Error Alert */}
+          {errorMessage && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs flex items-start gap-2.5 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                {isArabic ? 'البريد الإلكتروني' : 'Email Address'}
+                {isArabic ? 'البريد الإلكتروني المعتمد' : 'Email Address'}
               </label>
               <div className="relative">
                 <input
@@ -113,6 +180,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
                   className="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute top-3.5 left-3.5 rtl:left-auto rtl:right-3.5" />
@@ -138,6 +206,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••••"
                   className="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute top-3.5 left-3.5 rtl:left-auto rtl:right-3.5" />
@@ -158,7 +227,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>{isArabic ? `تسجيل الدخول (${role === 'SUPER_ADMIN' ? 'الإدارة' : 'الطالب'})` : `Sign In (${role === 'SUPER_ADMIN' ? 'Super Admin' : 'Student'})`}</span>
+                  <span>{isArabic ? `دخول (${role === 'SUPER_ADMIN' ? 'الإدارة العليا' : 'بوابة الطالب'})` : `Sign In (${role === 'SUPER_ADMIN' ? 'Super Admin' : 'Student Portal'})`}</span>
                 </>
               )}
             </button>
@@ -198,7 +267,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 required
                 value={forgotEmail}
                 onChange={(e) => setForgotEmail(e.target.value)}
-                placeholder="student@example.com"
+                placeholder="name@example.com"
                 className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
               />
               {forgotSent ? (
