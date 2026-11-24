@@ -35,6 +35,15 @@ service cloud.firestore {
       allow read, create, update, delete: if true;
     }
 
+    // ---- Book files stored on Firestore (free-plan fallback for Storage) ----
+    // bookFiles/{fileId}  +  bookFiles/{fileId}/chunks/{index}
+    match /bookFiles/{fileId} {
+      allow read, create, update, delete: if true;
+      match /chunks/{chunkId} {
+        allow read, create, update, delete: if true;
+      }
+    }
+
     // ---- App meta / health check ----
     match /appMeta/{docId} {
       allow read, write: if true;
@@ -70,6 +79,15 @@ service cloud.firestore {
 //     match /activationCodes/{codeId} {
 //       allow read:   if signedIn();
 //       allow create, update, delete: if isAdmin();
+//     }
+//     match /bookFiles/{fileId} {
+//       allow read:   if signedIn();
+//       allow create: if signedIn();
+//       allow delete: if signedIn();
+//       match /chunks/{chunkId} {
+//         allow read:   if signedIn();
+//         allow create: if signedIn();
+//       }
 //     }
 //     match /appMeta/{docId} {
 //       allow read:  if signedIn();
