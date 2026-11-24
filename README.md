@@ -1,94 +1,87 @@
-# إدارة المذاكرة — Smart Study Planner
+# Smart Study Planner (مخطط الدراسة الذكي) 📚⏱️
 
-تطبيق لتنظيم المذاكرة باستخدام Firebase: ملفات تعليمية خاصة، وحدات مذاكرة قائمة على الدروس، تخطيط قابل للتعديل، وواجهة عربية RTL / إنجليزية LTR مع الوضعين الفاتح والداكن.
+<div align="center">
+  <img src="public/brand/main-logo.svg" alt="Smart Study Planner Logo" width="450"/>
+  <p><strong>نظام متكامل لمتابعة ومراقبة الطلاب وإدارة الخطط الدراسية والمراجعات الذكية</strong></p>
+  <p><em>Intelligent Academic Management & Student Monitoring Super Admin System</em></p>
+</div>
 
-- **التقنية:** Next.js App Router + TypeScript + Firebase Authentication وFirestore وStorage، مع Firebase Cloud Functions للإجراءات الموثوقة ومعالجة الملفات.
-- **الصلاحيات:** الدور الإداري يُقرأ من Firebase Authentication custom claims فقط؛ بيانات الدور في Firestore للعرض وليست مصدر صلاحية. لا يوجد تسجيل عام للمشرفين.
-- **البيانات القديمة:** تظل سجلات المهام والصفحات القديمة محفوظة للتوافق؛ الشاشات الرئيسية الجديدة تعرض الدروس كمقياس أساسي.
-- **حدود المعالجة الحالية:** تحليل النص متاح لملفات PDF النصية عند إعداد مفتاح Gemini. ملفات PDF الممسوحة أو قليلة النص تُحوّل إلى «تحتاج مراجعة» لعدم وجود OCR مهيأ. ملفات DOC/DOCX والصور تُحفظ بشكل خاص لكن استخراج الدروس الآلي لها غير مفعّل بعد.
+---
 
-## الصفحات
+## 🌟 نظرة عامة | Overview
 
-| الصفحة | الوظيفة |
-|---|---|
-| `/` | الصفحة الرئيسية |
-| `/login` و`/register` | تسجيل الدخول والتسجيل مع بيانات المستوى الدراسي |
-| `/dashboard` | إحصاءات الدروس والتقدم والمهام اليومية |
-| `/subjects` | المواد وتقدم الدروس |
-| `/plan` | معاينة وتعديل خطة الدروس وحفظها |
-| `/tasks` | قائمة الدروس وفلاتر الحالة |
-| `/library` | رفع الملفات الخاصة، المعاينة، حالة المعالجة وإدارة الدروس المستخرجة |
-| `/settings` | اللغة والمظهر والاسم والبيانات الدراسية |
-| `/admin` | دليل الطلاب وإدارة الأدوار، للمشرف الموثق فقط |
+**Smart Study Planner** هو نظام تعليمي وإداري متطور مخصص لمتابعة طلاب الثانوية العامة والمراحل الأكاديمية المختلفة. يوفر النظام لوحة تحكم متقدمة للإدارة العليا (**Super Admin Dashboard**) لمراقبة تقدم الطلاب الدراسي، تحليل كتب الـ PDF بالذكاء الاصطناعي، متابعة جولات المراجعة والمهام اليومية، وإدارة الأجهزة المسجلة واشتراكات الباقات بكل دقة وأمان.
 
-## إعداد Firebase
+---
 
-1. فعّل **Email/Password** في Firebase Authentication، وأنشئ Firestore وStorage.
-2. أضف تطبيق Web في إعدادات Firebase واضبط متغيرات `.env.local` وفق `.env.example`.
-3. راجع `firebase/firestore.rules` و`firebase/storage.rules` قبل نشر القواعد. قواعد Firestore تقصر بيانات المستخدم على مالكها، وتحمي حقول الدور والمعالجة؛ قواعد Storage تفرض الملكية ونوع الملف والحجم (25 MiB).
-4. ثبّت Firebase CLI وسجّل الدخول ثم اختر المشروع الصحيح، وبعد مراجعة التغييرات انشر القواعد والوظائف عند اعتماد النشر:
+## ✨ المميزات الرئيسية | Key Features
 
-   ```bash
-   firebase use study-managment-45332
-   firebase deploy --only firestore:rules,storage,functions
-   ```
+### 1. مراقبة ومتابعة الطلاب (Student Monitoring)
+- 📊 **بطاقات مؤشرات أداء فورية (KPIs):** إجمالي الطلاب، الاشتراكات النشطة، الاشتراكات المنتهية قريباً، ومتوسط التقدم الدراسي.
+- 🔍 **محرك بحث فوري متقدم:** البحث بالاسم (عربي وإنجليزي)، البريد، الهاتف، أو كود الطالب (`Student ID`).
+- 🎯 **فلاتر متعددة متزامنة:** تصفية حسب الباقة (`Free`, `Basic`, `Pro`, `Elite VIP`)، حالة الحساب (`Active`, `Suspended`, `Expired`, `Pending`)، وتاريخ انتهاء الصلاحية.
+- 📋 **جدول بيانات تفصيلي متكامل:** يعرض اسم الطالب، الهوية، الأجهزة المسجلة، عدد ملفات الـ PDF والخطط الدراسية، شريط نسبة التقدم، وتاريخ آخر نشاط.
 
-   **هذا الأمر للنشر المقصود فقط؛ لم يجرِ نشر أي مورد Firebase ضمن هذا التعديل.**
+### 2. الملف الكامل للطالب (Full Student Profile) - 10 أقسام متكاملة
+1. **البيانات الشخصية (Personal Info):** الاسم، الرقم القومي، البريد، هاتف الطالب وولي الأمر.
+2. **السنة الدراسية والمواد (Academic & Subjects):** المرحلة الدراسية، المواد المسجلة ونسب التقدم فيها.
+3. **الكتب والـ PDF المحللة (Uploaded PDFs):** الكتب الدراسية، أحجامها، الملخص المستخرج بالذكاء الاصطناعي.
+4. **الفصول والدروس والمفاهيم (Chapters & Lessons):** شجرة المناهج، زمن المذاكرة، ودرجات الإتقان.
+5. **خطط المذاكرة (Study Plans):** الخطط الأسبوعية والشهرية، الساعات المنجزة وسرعة الإنجاز.
+6. **المهام اليومية (Daily Tasks):** جدول المذاكرة اليومي، الالتزام وسلسلة الأيام (`Streak Days`).
+7. **مخطط المراجعة وجولاتها (Revision Planner):** العد التنازلي للامتحانات، الجولات الثلاث، ونقاط الضعف.
+8. **الإحصائيات والأداء (Performance Reports):** درجات الاختبارات، دقة الحل، وساعات المذاكرة الكلية.
+9. **سجل الاشتراكات والتفعيل (Subscription History):** الأكواد المفعلة، تواريخ التفعيل، ومراجع الدفع.
+10. **الأجهزة المسجلة (Registered Devices):** الأجهزة النشطة، البصمة الرقمية، مع إمكانية **إلغاء ربط الأجهزة (Revoke Device)**.
 
-### تحليل PDF النصي باستخدام Gemini (اختياري)
+### 3. التعديل الإداري وسجل التدقيق الأمني (Audit Logs)
+- 🔒 **سجل تدقيق أمني غير قابل للتعديل (Immutable Audit Trail):** توثيق كل تغيير متضمناً معرّف المسؤول، كود الطالب، الحقل المعدل، القيمة القديمة والجديدة، والوقت الدقيق بالثانية.
+- ⚠️ **نافذة تأكيد التعديل الإلزامية:** توجب كتابة سبب رسمي لكل تعديل ولا يمكن تجاوزه.
+- 🏷️ **فصل بصري واضح** بين إجراءات الإدارة (`ADMIN ACTION`) وإجراءات الطالب الذاتية (`STUDENT ACTION`).
+- 🛡️ **إعادة ضبط كلمة المرور الآمنة:** عدم تخزين أو عرض كلمات المرور كنص مجرد نهائياً (`Zero Plaintext`)، والاعتماد على روابط مشفرة أحادية الاستخدام صالحة لـ 15 دقيقة فقط.
 
-تحتاج وظيفة تحليل الدروس إلى مفتاح Gemini محفوظ كسرّ Firebase Functions، لا كمتغير عام في الواجهة. عند تهيئته، يُرسل نص PDF المستخرج إلى Google Gemini للتحليل. لأن الوظيفة تربط هذا السر وقت التشغيل، يجب إنشاء السر قبل نشر Functions:
+### 4. وضع الدعم الفني الآمن (Student Support Mode)
+- فحص ومعاينة تجربة الطالب الحقيقية داخل التطبيق في بيئة معزولة وآمنة (`Read-Only Inspection`) دون إمكانية التعديل على بياناته أو انتحال شخصيته.
 
-```bash
-firebase functions:secrets:set GEMINI_API_KEY
-firebase deploy --only functions
-```
+### 5. زر تفعيل الواتساب المباشر (WhatsApp Activation Button)
+- زر بارز باللون الأخضر الرسمي لواتساب (`#25D366`) على صفحة إدخال كود التفعيل وبوابة الطالب.
+- نص عربي: `"معندكش كود؟ تواصل معانا على واتساب"`
+- نص إنجليزي: `"Don't have an activation code? Contact us on WhatsApp"`
+- الرابط المباشر مع رسالة استفسار مسبقة: `https://wa.me/201010014590`
 
-يمكن ضبط `GEMINI_MODEL` كمتغير بيئة للوظائف؛ الافتراضي `gemini-2.5-flash`. إذا لم يكن المفتاح متاحًا، تحفظ الوظيفة حالة الملف «تحتاج مراجعة» ولا تدّعي اكتمال التحليل. لا يوجد OCR حاليًا، كما أن الاستخراج الآلي لـDOC/DOCX والصور غير مفعّل.
+### 6. الهوية البصرية الرسمية (Official Brand Identity & Logo System)
+- الشعار المعتمد: **رمز الكتاب المفتوح وساعة الإنجاز الأكاديمية (10:10)**.
+- الألوان الأساسية: الكحلي الداكن (`#0A1128`)، الأزرق الكهربائي (`#00D2FF` / `#2563EB`)، والبنفسجي الملكي (`#7C3AED`).
+- جميع الأصول متوفرة بصيغتي **SVG** و **PNG** بدقة فائقة داخل `/public/brand/`:
+  - `logo.svg`, `logo-light.svg`, `app-icon.png` (512x512), `favicon.svg`, `login-logo.svg`, `student-dashboard-logo.svg`, `admin-dashboard-logo.svg`, `loading-logo.svg`, `mobile-icon.svg`.
 
-### إعداد أول Super Admin
+---
 
-لا توجد صفحة تسجيل عامة للمشرف. بعد إنشاء حساب موثوق، شغّل أداة bootstrap محليًا في بيئة لها Google Application Default Credentials مخوّلة للمشروع. يمكن ترقية المشرف إما بـUID مباشرًا أو بالبريد الإلكتروني:
-
-```bash
-export SUPER_ADMIN_EMAIL="adam.sherif.aboasy@gmail.com"
-npm run bootstrap-admin --prefix functions
-```
-
-أو باستخدام UID مباشر:
-
-```bash
-export SUPER_ADMIN_UID="<existing-firebase-auth-uid>"
-npm run bootstrap-admin --prefix functions
-```
-
-الأداة تبحث عن الحساب حسب البريد (عند استخدام `SUPER_ADMIN_EMAIL`) أو تستخدم الـUID مباشرة، ثم تضيف custom claim وتحدّث ملف Firestore. يجب على المستخدم تحديث Firebase ID token لتظهر الصلاحية. احتفظ بالبريد واعتماد Google في بيئة موثوقة، ولا تضع بيانات الاعتماد في المتصفح أو المستودع.
-
-## التشغيل والاختبارات
+## 🚀 التشغيل والتثبيت محلياً | Local Development
 
 ```bash
+# 1. الدخول إلى مجلد المشروع
+cd F:\programing\SSP
+
+# 2. تثبيت الحزم
 npm install
+
+# 3. تشغيل خادم التطوير
 npm run dev
-npm test
-npm run typecheck
+
+# 4. بناء نسخة الإنتاج
 npm run build
-npm install --prefix functions
-npm run build --prefix functions
-npm test --prefix functions
 ```
 
-## بنية المشروع
+يعمل التطبيق افتراضياً على:
+**http://localhost:5173**
 
-```text
-src/app/                  صفحات Next.js، بما فيها لوحة الطالب والمكتبة والإدارة
-src/components/           مكونات الواجهة المشتركة
-src/lib/auth.tsx          Firebase Auth وحالة الدور المستمدة من claims
-src/lib/permissions.ts    مصفوفة صلاحيات قابلة للتوسعة
-src/lib/data.ts           عمليات واشتراكات Firestore
-src/lib/lesson-planner.ts جدولة الدروس واختباراتها
-firebase/firestore.rules  قواعد Firestore
-firebase/storage.rules    قواعد تخزين خاصة
-functions/src/            صلاحيات موثوقة ومعالجة الملفات
-functions/scripts/        أداة إعداد المشرف الأول، ليست endpoint عامة
-public/manus-routes.json  بيان مسارات التطبيق
-```
+---
+
+## 🛠️ التقنيات المستخدمة | Tech Stack
+
+- **Framework:** React 18 + Vite + TypeScript
+- **Styling:** Tailwind CSS + Glassmorphism + Custom Glows
+- **Icons:** Lucide React + Custom SVG Vectors
+- **Asset Rendering:** @resvg/resvg-js (Vector to High-Res PNG)
+- **Internationalization:** Full Arabic (RTL) & English (LTR) Support
