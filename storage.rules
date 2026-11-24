@@ -3,31 +3,43 @@ rules_version = '2';
 // ============================================================
 // Smart Study Planner — Firebase Storage rules
 // نشر: firebase deploy --only storage
-// اسمح بحد أقصى 200 ميجابايت للملف الواحد ومن نوع PDF
+//
+// ⚠️ الوضع الحالي = مفتوح عشان رفع الكتب يشتغل من غير Firebase Auth.
+// Open mode so PDF uploads work without Firebase Auth.
+// نسخة الإنتاج المشدّدة موجودة في آخر الملف.
 // ============================================================
 service firebase.storage {
   match /b/{bucket}/o {
 
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function role() {
-      return signedIn() ? request.auth.token.role : null;
-    }
-
-    function isAdmin() {
-      return role() == 'SUPER_ADMIN' || role() == 'STUDENT_ADMIN';
-    }
-
-    // books/{studentId}/{file}.pdf
     match /books/{studentId}/{fileName} {
-      allow read: if signedIn() && (isAdmin() || request.auth.uid == studentId);
-      allow write: if signedIn()
-                   && (isAdmin() || request.auth.uid == studentId)
-                   && request.resource.size < 200 * 1024 * 1024
-                   && request.resource.contentType == 'application/pdf';
-      allow delete: if signedIn() && (isAdmin() || request.auth.uid == studentId);
+      allow read:   if true;
+      allow write:  if request.resource == null
+                    || (request.resource.size < 200 * 1024 * 1024);
+      allow delete: if true;
+    }
+
+    // أي مسار آخر: ممنوع
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }
+
+// ============================================================
+// 🔒 نسخة الإنتاج (بعد تفعيل Firebase Auth + Custom Claims)
+// ============================================================
+// service firebase.storage {
+//   match /b/{bucket}/o {
+//     function signedIn() { return request.auth != null; }
+//     function role() { return signedIn() ? request.auth.token.role : null; }
+//     function isAdmin() { return role() == 'SUPER_ADMIN' || role() == 'STUDENT_ADMIN'; }
+//
+//     match /books/{studentId}/{fileName} {
+//       allow read:   if signedIn() && (isAdmin() || request.auth.uid == studentId);
+//       allow write:  if signedIn()
+//                     && (isAdmin() || request.auth.uid == studentId)
+//                     && request.resource.size < 200 * 1024 * 1024;
+//       allow delete: if signedIn() && (isAdmin() || request.auth.uid == studentId);
+//     }
+//   }
+// }

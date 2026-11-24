@@ -66,6 +66,7 @@ export const App: React.FC = () => {
   const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
   const [cloudConnected, setCloudConnected] = useState<boolean>(false);
   const [cloudSyncing, setCloudSyncing] = useState<boolean>(true);
+  const [cloudError, setCloudError] = useState<string | null>(null);
 
   // Firebase: analytics + realtime students listener
   useEffect(() => {
@@ -78,6 +79,15 @@ export const App: React.FC = () => {
       const online = await checkFirebaseConnection();
       if (cancelled) return;
       setCloudConnected(online);
+      if (!online) {
+        setCloudError(
+          isArabic
+            ? 'تعذّر الاتصال بـ Firestore. أسهل حل: في Firebase Console → Firestore → Rules الصق قواعد «الوضع المفتوح» من ملف firestore.rules في المشروع واضغط Publish (أو شغّل firebase deploy --only firestore:rules,storage). كمان تأكد إنك أنشأت قاعدة بيانات Firestore فعلاً.'
+            : 'Could not reach Firestore. Easiest fix: Firebase Console → Firestore → Rules → paste the open-mode rules from firestore.rules in the repo and Publish (or run firebase deploy --only firestore:rules,storage). Also make sure a Firestore database was created.'
+        );
+      } else {
+        setCloudError(null);
+      }
 
       if (online) {
         // first run: upload the demo students so the dashboard isn't empty
@@ -101,6 +111,9 @@ export const App: React.FC = () => {
           console.warn('[firebase] students listener error', error);
           setCloudConnected(false);
           setCloudSyncing(false);
+          setCloudError(
+            `${isArabic ? 'خطأ في قراءة بيانات الطلاب' : 'Reading students failed'}: ${(error as { code?: string })?.code || String(error)}`
+          );
         }
       );
     };
@@ -1098,6 +1111,7 @@ export const App: React.FC = () => {
             students={students}
             isArabic={isArabic}
             cloudConnected={cloudConnected}
+            cloudError={cloudError}
             onDeleteStudent={handleDeleteStudent}
           />
         )}

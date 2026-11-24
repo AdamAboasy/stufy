@@ -22,6 +22,8 @@ interface StudentDeletionPanelProps {
   isArabic: boolean;
   /** true لو الحذف بيتم على Firebase فعلاً */
   cloudConnected?: boolean;
+  /** رسالة الخطأ الفعلية لما الاتصال يفشل */
+  cloudError?: string | null;
   onDeleteStudent: (student: Student) => Promise<unknown> | unknown;
 }
 
@@ -33,6 +35,7 @@ export const StudentDeletionPanel: React.FC<StudentDeletionPanelProps> = ({
   students,
   isArabic,
   cloudConnected = false,
+  cloudError = null,
   onDeleteStudent
 }) => {
   const [search, setSearch] = useState('');
@@ -125,6 +128,13 @@ export const StudentDeletionPanel: React.FC<StudentDeletionPanelProps> = ({
               : (isArabic ? 'وضع محلي (Firebase غير متاح)' : 'Local mode (Firebase offline)')}
           </span>
         </div>
+
+        {!cloudConnected && cloudError && (
+          <div className="mt-3 p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-100 text-[11px] leading-relaxed">
+            <div className="font-bold mb-1">{isArabic ? 'سبب عدم الاتصال:' : 'Connection error:'}</div>
+            <span dir="auto">{cloudError}</span>
+          </div>
+        )}
 
         {doneName && (
           <div className="mt-3 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center gap-2">
