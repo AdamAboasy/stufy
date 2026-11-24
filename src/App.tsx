@@ -543,6 +543,48 @@ export const App: React.FC = () => {
   };
 
   /* ============================================================
+     DELETE A BOOK FROM A STUDENT (Admin) + audit trail
+     ============================================================ */
+  const handleDeleteStudentBook = (student: Student, bookId: string) => {
+    const book = student.uploadedPdfs.find(p => p.id === bookId);
+    const planUsesBook = student.generatedPlan?.bookId === bookId;
+
+    const updated: Student = {
+      ...student,
+      uploadedPdfs: student.uploadedPdfs.filter(p => p.id !== bookId),
+      generatedPlan: planUsesBook ? null : student.generatedPlan
+    };
+
+    setStudents(prev => prev.map(s => (s.id === student.id ? updated : s)));
+    if (selectedStudent && selectedStudent.id === student.id) setSelectedStudent(updated);
+    if (currentStudent && currentStudent.id === student.id) setCurrentStudent(updated);
+    setEditingStudent(prev => (prev && prev.id === student.id ? updated : prev));
+
+    const newAuditLog: AuditLog = {
+      id: `log-book-del-${Date.now()}`,
+      adminId: 'ADMIN-SUPER-ADAM',
+      adminName: 'Adam Sherif (Super Admin)',
+      targetStudentId: student.studentId,
+      studentName: student.fullName,
+      actionSource: 'ADMIN',
+      changedField: 'uploadedPdfs (deletion)',
+      oldValue: book ? `${book.title} (${book.pageCount} pages, ${book.fileSizeMb} MB)` : bookId,
+      newValue: 'Book deleted from student library',
+      reason: planUsesBook
+        ? 'Super Admin deleted the book and its linked study plan'
+        : 'Super Admin deleted the book from the student library',
+      timestamp: new Date().toISOString()
+    };
+    setAuditLogs(prev => [newAuditLog, ...prev]);
+
+    showToast(
+      isArabic
+        ? `تم حذف الكتاب${planUsesBook ? ' والخطة المرتبطة به' : ''} من حساب الطالب وتوثيق العملية.`
+        : `Book${planUsesBook ? ' and its linked plan were' : ' was'} deleted from the student account.`
+    );
+  };
+
+  /* ============================================================
      PROMOTE / DEMOTE STUDENT TO ADMIN (Super Admin only)
      ============================================================ */
   const handleToggleStudentAdmin = (student: Student) => {
@@ -971,6 +1013,7 @@ export const App: React.FC = () => {
           onRevokeDevice={(studentId: string, deviceId: string) => handleRevokeDevice(studentId, deviceId)}
           onDeleteStudent={isSuperAdmin ? handleDeleteStudent : undefined}
           onToggleStudentAdmin={isSuperAdmin ? handleToggleStudentAdmin : undefined}
+          onDeleteBook={canSeeAdminPanel ? handleDeleteStudentBook : undefined}
         />
       )}
 

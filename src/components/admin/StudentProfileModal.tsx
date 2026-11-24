@@ -40,6 +40,7 @@ interface StudentProfileModalProps {
   onGeneratePasswordReset: (student: Student) => void;
   onDeleteStudent?: (student: Student) => void;
   onToggleStudentAdmin?: (student: Student) => void;
+  onDeleteBook?: (student: Student, bookId: string) => void;
 }
 
 export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
@@ -52,8 +53,10 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   onRevokeDevice,
   onGeneratePasswordReset,
   onDeleteStudent,
-  onToggleStudentAdmin
+  onToggleStudentAdmin,
+  onDeleteBook
 }) => {
+  const [bookToDelete, setBookToDelete] = useState<BookPdf | null>(null);
   const [activeTab, setActiveTab] = useState<number>(1);
   const [copiedToken, setCopiedToken] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -366,6 +369,15 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                         <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-500/30">
                           {pdf.keyConceptsCount} {isArabic ? 'مفهوم مستخرج' : 'AI Concepts'}
                         </span>
+                        {onDeleteBook && (
+                          <button
+                            onClick={() => setBookToDelete(pdf)}
+                            title={isArabic ? 'حذف هذا الكتاب' : 'Delete this book'}
+                            className="p-2 rounded-xl bg-red-950/60 hover:bg-red-900/70 text-red-300 border border-red-500/30 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -692,6 +704,40 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
           )}
 
         </div>
+
+        {/* Delete Book Confirmation Overlay */}
+        {bookToDelete && onDeleteBook && (
+          <div className="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-red-500/40 p-5 space-y-4">
+              <div className="flex items-center gap-2 text-red-400">
+                <AlertTriangle className="w-6 h-6" />
+                <h4 className="font-bold text-white">{isArabic ? 'تأكيد حذف الكتاب' : 'Confirm book deletion'}</h4>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed break-words">
+                {isArabic
+                  ? `سيتم حذف كتاب (${bookToDelete.title}) من حساب الطالب (${student.fullNameAr || student.fullName}) نهائياً وسيتم توثيق العملية في سجل التدقيق.`
+                  : `Book (${bookToDelete.title}) will be removed from ${student.fullName}'s account permanently and the action will be logged in the audit trail.`}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setBookToDelete(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold"
+                >
+                  {isArabic ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  onClick={() => {
+                    onDeleteBook(student, bookToDelete.id);
+                    setBookToDelete(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold"
+                >
+                  {isArabic ? 'حذف نهائي' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Delete Confirmation Overlay */}
         {confirmDelete && onDeleteStudent && (

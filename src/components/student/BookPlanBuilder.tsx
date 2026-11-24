@@ -41,6 +41,9 @@ const SUBJECTS = [
 const DAY_NAMES_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+/** أقصى حجم مسموح للكتاب */
+export const MAX_FILE_SIZE_MB = 100;
+
 const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`;
@@ -101,8 +104,12 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
       setError(isArabic ? 'الملفات المدعومة هي PDF فقط.' : 'Only PDF files are supported.');
       return;
     }
-    if (file.size > 40 * 1024 * 1024) {
-      setError(isArabic ? 'حجم الملف كبير جداً (الحد 40 ميجابايت).' : 'File is too large (40MB limit).');
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setError(
+        isArabic
+          ? `حجم الملف كبير جداً (الحد ${MAX_FILE_SIZE_MB} ميجابايت).`
+          : `File is too large (${MAX_FILE_SIZE_MB}MB limit).`
+      );
       return;
     }
     setError(null);
@@ -239,7 +246,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                         {isArabic ? 'اضغط لرفع كتاب PDF' : 'Tap to upload your PDF book'}
                       </span>
                       <span className="text-[11px] text-slate-400">
-                        {isArabic ? 'الحد الأقصى 40 ميجابايت' : 'Up to 40MB'}
+                        {isArabic ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت` : `Up to ${MAX_FILE_SIZE_MB}MB`}
                       </span>
                     </>
                   )}

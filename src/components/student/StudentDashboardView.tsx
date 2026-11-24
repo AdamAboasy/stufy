@@ -31,7 +31,9 @@ import {
   RefreshCw,
   Globe,
   MoreHorizontal,
-  Trash2
+  Trash2,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 
 interface StudentDashboardViewProps {
@@ -68,6 +70,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   const [showBuilder, setShowBuilder] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [selectedPdf, setSelectedPdf] = useState<BookPdf | null>(null);
+  const [bookToDelete, setBookToDelete] = useState<BookPdf | null>(null);
   const [saveNote, setSaveNote] = useState<string | null>(null);
 
   const plan = student.generatedPlan || null;
@@ -148,6 +151,25 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
         t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t
       )
     });
+  };
+
+  const handleDeleteBook = (book: BookPdf) => {
+    if (!onUpdateStudent) return;
+
+    // لو الخطة الحالية مبنية على الكتاب ده، بنمسح الخطة مع الكتاب
+    const planUsesBook = plan?.bookId === book.id;
+    onUpdateStudent({
+      ...activeStudent,
+      uploadedPdfs: (activeStudent.uploadedPdfs || []).filter(p => p.id !== book.id),
+      generatedPlan: planUsesBook ? null : activeStudent.generatedPlan
+    });
+    setBookToDelete(null);
+    setSelectedPdf(null);
+    flash(
+      planUsesBook
+        ? (isArabic ? 'تم حذف الكتاب والخطة المرتبطة به.' : 'Book and its linked plan were deleted.')
+        : (isArabic ? 'تم حذف الكتاب.' : 'Book deleted.')
+    );
   };
 
   const handleDeletePlan = () => {
@@ -727,10 +749,17 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                       <div className="w-10 h-10 rounded-xl bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
                         <FileText className="w-5 h-5" />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <span className="text-[10px] font-bold text-brand-blue-electric uppercase">{pdf.subject}</span>
                         <h3 className="text-xs font-bold text-white line-clamp-2">{pdf.title}</h3>
                       </div>
+                      <button
+                        onClick={() => setBookToDelete(pdf)}
+                        className="p-1.5 rounded-lg bg-red-950/60 text-red-300 border border-red-500/30 shrink-0 active:scale-95"
+                        title={isArabic ? 'حذف الكتاب' : 'Delete book'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-slate-400">
                       <span>{pdf.pageCount} {isArabic ? 'صفحة' : 'pages'}</span>
@@ -930,6 +959,51 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
         />
       )}
 
+      {/* ============ Delete book confirmation ============ */}
+      {bookToDelete && (
+        <div className="fixed inset-0 z-[65] bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-red-500/40 p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-red-950 text-red-400 border border-red-500/40 shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-white text-base">
+                  {isArabic ? 'تأكيد حذف الكتاب' : 'Confirm book deletion'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed break-words">
+                  {isArabic
+                    ? `سيتم حذف (${bookToDelete.title}) نهائياً من مكتبتك${plan?.bookId === bookToDelete.id ? '، ومعاه الخطة المبنية عليه' : ''}.`
+                    : `(${bookToDelete.title}) will be permanently removed from your library${plan?.bookId === bookToDelete.id ? ' along with the plan built on it' : ''}.`}
+                </p>
+              </div>
+              <button
+                onClick={() => setBookToDelete(null)}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row gap-2 pt-1">
+              <button
+                onClick={() => setBookToDelete(null)}
+                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                onClick={() => handleDeleteBook(bookToDelete)}
+                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {isArabic ? 'حذف نهائي' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ============ Book details modal ============ */}
       {selectedPdf && (
         <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -951,13 +1025,22 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                 <span className="font-bold text-emerald-400">{selectedPdf.keyConceptsCount}</span>
               </div>
             </div>
-            <button
-              onClick={() => { setSelectedPdf(null); setShowBuilder(true); }}
-              className="w-full py-3 rounded-xl bg-brand-blue text-white text-xs font-bold flex items-center justify-center gap-2"
-            >
-              <Sparkles className="w-4 h-4" />
-              {isArabic ? 'ابنِ خطة لهذا الكتاب' : 'Build a plan for this book'}
-            </button>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                onClick={() => { setSelectedPdf(null); setShowBuilder(true); }}
+                className="w-full py-3 rounded-xl bg-brand-blue text-white text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                {isArabic ? 'ابنِ خطة لهذا الكتاب' : 'Build a plan for this book'}
+              </button>
+              <button
+                onClick={() => setBookToDelete(selectedPdf)}
+                className="w-full py-2.5 rounded-xl bg-red-950/60 text-red-300 border border-red-500/30 text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {isArabic ? 'حذف هذا الكتاب' : 'Delete this book'}
+              </button>
+            </div>
           </div>
         </div>
       )}
