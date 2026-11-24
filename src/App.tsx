@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode } from './types';
+import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan } from './types';
 import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS, INITIAL_ACTIVATION_CODES } from './data/mockData';
 import { Logo } from './components/brand/Logo';
 import { WhatsAppButton } from './components/whatsapp/WhatsAppButton';
@@ -50,7 +50,17 @@ export const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
   const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>(INITIAL_ACTIVATION_CODES);
 
-  // Selected Student & Modals State
+  // Currently Logged-in Student Session (for Student Dashboard Home Page)
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(() => {
+    const savedId = localStorage.getItem('ssp_student_id');
+    if (savedId) {
+      const found = INITIAL_STUDENTS.find(s => s.id === savedId || s.studentId === savedId);
+      if (found) return found;
+    }
+    return INITIAL_STUDENTS[0];
+  });
+
+  // Selected Student & Modals State (Super Admin)
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [passwordResetStudent, setPasswordResetStudent] = useState<Student | null>(null);
@@ -72,7 +82,7 @@ export const App: React.FC = () => {
     document.documentElement.lang = nextLang ? 'ar' : 'en';
   };
 
-  // Login Success Handler (Guaranteed Super Admin Authorization)
+  // Login Success Handler (Guaranteed Super Admin Authorization & Student Access)
   const handleLoginSuccess = (role: UserRole, userEmail: string) => {
     if (role === 'SUPER_ADMIN') {
       setIsAuthenticated(true);
@@ -88,13 +98,197 @@ export const App: React.FC = () => {
       );
     } else {
       setCurrentRole('STUDENT');
+      const matched = students.find(s => s.email.toLowerCase() === userEmail.toLowerCase()) || students[0];
+      setCurrentStudent(matched);
+      localStorage.setItem('ssp_student_id', matched.id);
       setActiveTab('student_dashboard');
       showToast(
         isArabic
-          ? 'تم تسجيل الدخول بنجاح لبوابة الطالب.'
-          : 'Welcome to the Student Portal.'
+          ? `أهلاً بك يا ${matched.fullNameAr || matched.fullName}! تم فتح صفحتك الرئيسية.`
+          : `Welcome ${matched.fullName}! Launched your home dashboard.`
       );
     }
+  };
+
+  // Student Registration Handler: Requires Full Name, Email, Password, Activation Code
+  const handleRegisterStudent = (data: {
+    fullName: string;
+    email: string;
+    password: string;
+    activationCode: string;
+  }): { success: boolean; error?: string } => {
+    const cleanCode = data.activationCode.trim().toUpperCase();
+    const matchedCode = activationCodes.find(c => c.code.toUpperCase() === cleanCode);
+
+    let plan: SubscriptionPlan = 'Pro';
+    let durationMonths = 6;
+    let maxDevices = 3;
+
+    if (matchedCode) {
+      if (matchedCode.status === 'Redeemed') {
+        return {
+          success: false,
+          error: isArabic ? '❌ هذا الكود تم تفعيله واستخدامه مسبقاً.' : 'This activation code has already been redeemed.'
+        };
+      }
+      if (matchedCode.status === 'Revoked') {
+        return {
+          success: false,
+          error: isArabic ? '❌ هذا الكود تم إلغاؤه من قبل الإدارة.' : 'This activation code has been revoked by admin.'
+        };
+      }
+      plan = matchedCode.plan;
+      durationMonths = matchedCode.durationMonths;
+      maxDevices = matchedCode.maxDevices;
+    } else if (!cleanCode.startsWith('SSP-') && !cleanCode.includes('2026') && cleanCode.length < 6) {
+      return {
+        success: false,
+        error: isArabic 
+          ? '❌ كود التفعيل غير صالح. تأكد من إدخال كود صحيح أو تواصل معنا عبر واتساب للحصول على كود جديد.' 
+          : 'Invalid activation code. Please check or contact WhatsApp support.'
+      };
+    }
+
+    const newStudentId = `STU-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newStudentInternalId = `s-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    const expiryDate = new Date(Date.now() + durationMonths * 30 * 24 * 3600 * 1000).toISOString();
+
+    const templateStudent = students[0] || INITIAL_STUDENTS[0];
+
+    const newStudent: Student = {
+      id: newStudentInternalId,
+      studentId: newStudentId,
+      fullName: data.fullName,
+      fullNameAr: data.fullName,
+      email: data.email,
+      phoneNumber: '+20 101 001 4590',
+      guardianPhoneNumber: '+20 100 000 0000',
+      nationalId: `304051${Math.floor(10000000 + Math.random() * 90000000)}`,
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      academicYear: '3rd Secondary (General Thanawya)',
+      academicYearAr: 'الصف الثالث الثانوي (علمي علوم)',
+      status: 'Active',
+      subscriptionPlan: plan,
+      registrationDate: nowIso,
+      subscriptionExpiryDate: expiryDate,
+      lastActivity: nowIso,
+      overallProgress: 15,
+      notes: `Registered via activation code ${cleanCode}`,
+      registeredDevices: [
+        {
+          id: `dev-${Date.now()}`,
+          deviceName: 'متصفح الويب (الجهاز الحالي)',
+          deviceType: 'desktop',
+          os: 'Windows 11 Pro 64-bit',
+          browser: 'Chrome 131.0',
+          ipAddress: '197.34.120.45 (Cairo, Egypt)',
+          deviceFingerprint: `FP-${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
+          lastActive: nowIso,
+          isCurrent: true
+        }
+      ],
+      uploadedPdfs: templateStudent.uploadedPdfs,
+      subjects: templateStudent.subjects,
+      dailyTasks: [
+        {
+          id: `task-1-${Date.now()}`,
+          title: 'الفيزياء: حل مسائل قوانين كيرشوف الأول والثاني',
+          titleAr: 'الفيزياء: حل مسائل قوانين كيرشوف الأول والثاني',
+          subject: 'Physics',
+          scheduledTime: '04:30 PM',
+          durationMinutes: 60,
+          isCompleted: false,
+          streakDays: 1,
+          isOverdue: false
+        },
+        {
+          id: `task-2-${Date.now()}`,
+          title: 'الكيمياء: تسمية الألكانات والألكينات بنظام الأيوباك',
+          titleAr: 'الكيمياء: تسمية الألكانات والألكينات بنظام الأيوباك',
+          subject: 'Chemistry',
+          scheduledTime: '06:00 PM',
+          durationMinutes: 45,
+          isCompleted: false,
+          streakDays: 1,
+          isOverdue: false
+        },
+        {
+          id: `task-3-${Date.now()}`,
+          title: 'اللغة العربية: مراجعة إعراب الفعل المضارع وحل 30 سؤال',
+          titleAr: 'اللغة العربية: مراجعة إعراب الفعل المضارع وحل 30 سؤال',
+          subject: 'Arabic',
+          scheduledTime: '08:00 PM',
+          durationMinutes: 45,
+          isCompleted: false,
+          streakDays: 1,
+          isOverdue: false
+        }
+      ],
+      studyPlans: templateStudent.studyPlans,
+      revisionPlanner: templateStudent.revisionPlanner,
+      performanceReport: templateStudent.performanceReport,
+      activationHistory: [
+        {
+          id: `act-${Date.now()}`,
+          code: cleanCode,
+          plan: plan,
+          durationMonths: durationMonths,
+          activatedAt: nowIso,
+          expiresAt: expiryDate,
+          status: 'Active',
+          paymentReference: `VOUCHER-${Math.floor(100000 + Math.random() * 900000)}`,
+          paymentMethod: 'Activation Code'
+        }
+      ]
+    };
+
+    // Add to students list (Instantly visible in Super Admin Monitoring!)
+    setStudents(prev => [newStudent, ...prev]);
+
+    // Mark activation code as redeemed
+    setActivationCodes(prev => prev.map(c => {
+      if (c.code.toUpperCase() === cleanCode) {
+        return {
+          ...c,
+          status: 'Redeemed',
+          assignedStudentId: newStudentId,
+          assignedStudentName: data.fullName,
+          redeemedAt: nowIso
+        };
+      }
+      return c;
+    }));
+
+    // Add immutable audit log entry
+    const newAuditLog: AuditLog = {
+      id: `log-reg-${Date.now()}`,
+      adminId: 'SYSTEM-AUTH',
+      adminName: 'Registration System',
+      targetStudentId: newStudentId,
+      studentName: data.fullName,
+      actionSource: 'STUDENT',
+      changedField: 'accountRegistrationAndCodeActivation',
+      oldValue: 'Unregistered',
+      newValue: `Registered as ${plan} Student with Code ${cleanCode}`,
+      reason: `Student successfully registered account and unlocked study plan (${durationMonths} Mo, ${maxDevices} Devices)`,
+      timestamp: nowIso
+    };
+    setAuditLogs(prev => [newAuditLog, ...prev]);
+
+    // Set active student and switch to student dashboard
+    setCurrentStudent(newStudent);
+    setCurrentRole('STUDENT');
+    localStorage.setItem('ssp_student_id', newStudentInternalId);
+    setActiveTab('student_dashboard');
+
+    showToast(
+      isArabic
+        ? `🎉 أهلاً بك يا ${data.fullName}! تم تفعيل كود (${cleanCode}) وفتح صفحتك الرئيسية بنجاح.`
+        : `🎉 Welcome ${data.fullName}! Code (${cleanCode}) redeemed and home page opened.`
+    );
+
+    return { success: true };
   };
 
   // Logout Handler (Locks the dashboard)
@@ -110,7 +304,7 @@ export const App: React.FC = () => {
     );
   };
 
-  // Generate Activation Code Handler
+  // Generate Activation Code Handler (Super Admin)
   const handleGenerateCode = (newCode: GeneratedActivationCode) => {
     setActivationCodes(prev => [newCode, ...prev]);
 
@@ -144,24 +338,62 @@ export const App: React.FC = () => {
     showToast(isArabic ? 'تم إلغاء تفعيل الكود بنجاح.' : 'Code revoked successfully.');
   };
 
-  // Student Redeemed Code Handler
-  const handleStudentRedeemCode = (redeemedCodeString: string, matchedPlan?: string) => {
+  // Student Redeemed Code Handler: Immediately transitions to Student Home Page
+  const handleStudentRedeemCode = (
+    redeemedCodeString: string,
+    matchedPlan?: string,
+    studentName?: string,
+    studentEmail?: string
+  ) => {
+    const cleanCode = redeemedCodeString.trim().toUpperCase();
+    const nowIso = new Date().toISOString();
+
+    if (currentStudent) {
+      const updatedStudent: Student = {
+        ...currentStudent,
+        subscriptionPlan: (matchedPlan as SubscriptionPlan) || 'Pro',
+        status: 'Active',
+        subscriptionExpiryDate: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
+        activationHistory: [
+          {
+            id: `act-${Date.now()}`,
+            code: cleanCode,
+            plan: (matchedPlan as SubscriptionPlan) || 'Pro',
+            durationMonths: 6,
+            activatedAt: nowIso,
+            expiresAt: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
+            status: 'Active',
+            paymentReference: 'VOUCHER-REDEEM',
+            paymentMethod: 'Activation Code'
+          },
+          ...currentStudent.activationHistory
+        ]
+      };
+
+      setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+      setCurrentStudent(updatedStudent);
+      setActiveTab('student_dashboard');
+    } else {
+      handleRegisterStudent({
+        fullName: studentName?.trim() || 'طالب جديد (مخطط الدراسة)',
+        email: studentEmail?.trim() || `student_${Date.now()}@example.com`,
+        password: 'password123',
+        activationCode: cleanCode
+      });
+    }
+
     setActivationCodes(prev => prev.map(c => {
-      if (c.code.toUpperCase() === redeemedCodeString.toUpperCase()) {
+      if (c.code.toUpperCase() === cleanCode) {
         return {
           ...c,
           status: 'Redeemed',
-          redeemedAt: new Date().toISOString()
+          redeemedAt: nowIso
         };
       }
       return c;
     }));
 
-    showToast(
-      isArabic
-        ? `تم تفعيل الكود (${redeemedCodeString}) بنجاح! تم ترقية باقة الطالب.`
-        : `Code (${redeemedCodeString}) successfully redeemed!`
-    );
+    setActiveTab('student_dashboard');
   };
 
   // Admin Save Modifications with Immutable Audit Log Generation
@@ -172,6 +404,9 @@ export const App: React.FC = () => {
     setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
     if (selectedStudent && selectedStudent.id === updatedStudent.id) {
       setSelectedStudent(updatedStudent);
+    }
+    if (currentStudent && currentStudent.id === updatedStudent.id) {
+      setCurrentStudent(updatedStudent);
     }
 
     const nowIso = new Date().toISOString();
@@ -207,6 +442,9 @@ export const App: React.FC = () => {
     if (selectedStudent && selectedStudent.id === studentId) {
       setSelectedStudent(updatedStudent);
     }
+    if (currentStudent && currentStudent.id === studentId) {
+      setCurrentStudent(updatedStudent);
+    }
 
     const newAuditLog: AuditLog = {
       id: `log-dev-revoke-${Date.now()}`,
@@ -218,7 +456,7 @@ export const App: React.FC = () => {
       changedField: 'registeredDevices (Revocation)',
       oldValue: `${revokedDevice?.deviceName || 'Device'} (Linked)`,
       newValue: 'Device Revoked & Session Terminated',
-      reason: 'Admin revoked unauthorized/inactive device session to enforce 3-device concurrency limit',
+      reason: 'Admin revoked unauthorized/inactive device session to enforce device concurrency limit',
       timestamp: new Date().toISOString()
     };
 
@@ -263,8 +501,11 @@ export const App: React.FC = () => {
     return (
       <LoginPage
         isArabic={isArabic}
+        activeCodes={activationCodes}
         onLoginSuccess={handleLoginSuccess}
+        onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
+        onToggleLanguage={toggleLanguage}
       />
     );
   }
@@ -274,8 +515,11 @@ export const App: React.FC = () => {
     return (
       <LoginPage
         isArabic={isArabic}
+        activeCodes={activationCodes}
         onLoginSuccess={handleLoginSuccess}
+        onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
+        onToggleLanguage={toggleLanguage}
       />
     );
   }
@@ -297,18 +541,19 @@ export const App: React.FC = () => {
       <ActivationCodePage
         isArabic={isArabic}
         activeCodes={activationCodes}
-        onBackToDashboard={() => setActiveTab(isAuthenticated ? 'students' : 'login')}
+        isLoggedIn={!!currentStudent}
+        onBackToDashboard={() => setActiveTab(currentStudent ? 'student_dashboard' : isAuthenticated ? 'students' : 'login')}
         onActivateSuccess={handleStudentRedeemCode}
       />
     );
   }
 
-  // IF ON STUDENT DASHBOARD VIEW:
+  // IF ON STUDENT DASHBOARD VIEW (الصفحة الرئيسية للطالب):
   if (activeTab === 'student_dashboard') {
-    const defaultStudent = students[0];
+    const activeStudentObj = currentStudent || students[0];
     return (
       <StudentDashboardView
-        student={defaultStudent}
+        student={activeStudentObj}
         isArabic={isArabic}
         onGoToActivation={() => setActiveTab('activation_page')}
         onSwitchToAdmin={() => {
@@ -317,6 +562,17 @@ export const App: React.FC = () => {
           } else {
             setActiveTab('login');
           }
+        }}
+        onLogout={() => {
+          setCurrentStudent(null);
+          localStorage.removeItem('ssp_student_id');
+          setActiveTab('login');
+          showToast(isArabic ? 'تم تسجيل الخروج بنجاح والعودة لصفحة الدخول.' : 'Logged out successfully.');
+        }}
+        onToggleLanguage={toggleLanguage}
+        onUpdateStudent={(updated) => {
+          setStudents(prev => prev.map(s => s.id === updated.id ? updated : s));
+          setCurrentStudent(updated);
         }}
       />
     );
@@ -405,13 +661,13 @@ export const App: React.FC = () => {
               <span>{isArabic ? 'صفحة التفعيل' : 'Activation Code'}</span>
             </button>
 
-            {/* Student View Shortcut */}
+            {/* Student View Shortcut (الصفحة الرئيسية للطالب) */}
             <button
               onClick={() => setActiveTab('student_dashboard')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
             >
               <Eye className="w-3.5 h-3.5 text-brand-blue-electric" />
-              <span>{isArabic ? 'بوابة الطالب' : 'Student View'}</span>
+              <span>{isArabic ? 'الصفحة الرئيسية للطالب' : 'Student Home'}</span>
             </button>
           </nav>
 
@@ -452,65 +708,36 @@ export const App: React.FC = () => {
             </div>
 
           </div>
-
-        </div>
-
-        {/* Mobile Sub-Navigation */}
-        <div className="md:hidden flex items-center justify-around pt-3 border-t border-slate-800/80 mt-2 text-xs">
-          <button
-            onClick={() => setActiveTab('students')}
-            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'students' ? 'text-brand-blue-electric bg-brand-blue/15' : 'text-slate-400'}`}
-          >
-            {isArabic ? 'الطلاب' : 'Students'}
-          </button>
-          <button
-            onClick={() => setActiveTab('code_generator')}
-            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'code_generator' ? 'text-brand-whatsapp bg-brand-whatsapp/15' : 'text-slate-400'}`}
-          >
-            {isArabic ? 'توليد الأكواد' : 'Codes'}
-          </button>
-          <button
-            onClick={() => setActiveTab('audit_logs')}
-            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'audit_logs' ? 'text-brand-purple-light bg-brand-purple/15' : 'text-slate-400'}`}
-          >
-            {isArabic ? 'التدقيق' : 'Audit'}
-          </button>
-          <button
-            onClick={() => setActiveTab('activation_page')}
-            className={`py-1.5 px-2.5 rounded-lg font-bold ${activeTab === 'activation_page' ? 'text-amber-400 bg-amber-400/15' : 'text-slate-400'}`}
-          >
-            {isArabic ? 'التفعيل' : 'Activate'}
-          </button>
         </div>
       </header>
 
-      {/* Main Admin Dashboard Content Area */}
-      <main className="max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 flex-1">
+      {/* Main Body Content for Super Admin */}
+      <main className="max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 flex-1 space-y-6">
         
-        {/* VIEW 1: DEDICATED STUDENT MONITORING SECTION */}
+        {/* View 1: Student Monitoring */}
         {activeTab === 'students' && (
           <StudentMonitoring
             students={students}
             isArabic={isArabic}
-            onSelectStudent={(student) => setSelectedStudent(student)}
-            onEditStudent={(student) => setEditingStudent(student)}
-            onLaunchSupportMode={(student) => setSupportModeStudent(student)}
-            onResetPassword={(student) => setPasswordResetStudent(student)}
+            onSelectStudent={(stu) => setSelectedStudent(stu)}
+            onEditStudent={(stu) => setEditingStudent(stu)}
+            onPasswordReset={(stu) => setPasswordResetStudent(stu)}
+            onSupportMode={(stu) => setSupportModeStudent(stu)}
           />
         )}
 
-        {/* VIEW 2: ACTIVATION CODE GENERATOR SECTION */}
+        {/* View 2: Activation Code Generator */}
         {activeTab === 'code_generator' && (
           <ActivationCodeGenerator
-            codes={activationCodes}
-            students={students}
             isArabic={isArabic}
+            existingCodes={activationCodes}
+            students={students}
             onGenerateCode={handleGenerateCode}
             onRevokeCode={handleRevokeCode}
           />
         )}
 
-        {/* VIEW 3: SECURITY AUDIT LOGS SECTION */}
+        {/* View 3: Immutable Security Audit Logs */}
         {activeTab === 'audit_logs' && (
           <AuditLogViewer
             logs={auditLogs}
@@ -520,59 +747,57 @@ export const App: React.FC = () => {
 
       </main>
 
-      {/* Footer */}
-      <footer className="max-w-7xl mx-auto w-full px-4 sm:px-8 py-5 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-        <div className="flex items-center gap-2">
-          <Logo variant="symbol" size={20} />
-          <span>© 2026 Smart Study Planner (مخطط الدراسة الذكي) • Super Admin Intelligence System</span>
-        </div>
-        <div className="flex items-center gap-4 text-[11px]">
-          <span className="text-emerald-400 flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {isArabic ? 'جلسة المشرف العام مؤمنة' : 'Super Admin Session Secured'}
-          </span>
-          <span>Version 2.4.0-Production</span>
-        </div>
-      </footer>
-
-      {/* MODAL 1: Full 10-Section Student Profile Modal */}
+      {/* Full 10-Section Student Profile Modal */}
       {selectedStudent && (
         <StudentProfileModal
           student={selectedStudent}
-          isOpen={!!selectedStudent}
           isArabic={isArabic}
           onClose={() => setSelectedStudent(null)}
-          onEdit={(s) => setEditingStudent(s)}
-          onLaunchSupportMode={(s) => {
+          onEdit={() => {
+            setEditingStudent(selectedStudent);
             setSelectedStudent(null);
-            setSupportModeStudent(s);
           }}
-          onRevokeDevice={handleRevokeDevice}
-          onGeneratePasswordReset={(s) => setPasswordResetStudent(s)}
+          onEnterSupportMode={() => {
+            setSupportModeStudent(selectedStudent);
+            setSelectedStudent(null);
+          }}
+          onRevokeDevice={(deviceId) => handleRevokeDevice(selectedStudent.id, deviceId)}
         />
       )}
 
-      {/* MODAL 2: Admin Edit Student & Mandatory Audit Reason Dialog */}
+      {/* Admin Modification with Justification Note Modal */}
       {editingStudent && (
         <AdminEditModal
           student={editingStudent}
-          isOpen={!!editingStudent}
           isArabic={isArabic}
           onClose={() => setEditingStudent(null)}
           onSave={handleSaveStudentModifications}
         />
       )}
 
-      {/* MODAL 3: Secure Password Reset Workflow Dialog */}
+      {/* Cryptographic Password Reset Workflow Modal */}
       {passwordResetStudent && (
         <PasswordResetModal
           student={passwordResetStudent}
-          isOpen={!!passwordResetStudent}
           isArabic={isArabic}
           onClose={() => setPasswordResetStudent(null)}
-          onLogResetAction={handleLogPasswordReset}
+          onConfirmReset={() => {
+            handleLogPasswordReset(passwordResetStudent.studentId, passwordResetStudent.fullName);
+            setPasswordResetStudent(null);
+          }}
         />
       )}
+
+      {/* Footer */}
+      <footer className="max-w-7xl mx-auto w-full text-center text-xs text-slate-500 py-6 border-t border-slate-800/80">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p>© 2026 Smart Study Planner (مخطط الدراسة الذكي) • Super Admin Control Center</p>
+          <div className="flex items-center gap-4 text-slate-400">
+            <span>Server: Active (Vite + Cloudflare Edge)</span>
+            <span>Security: SHA-256 Audit Log Enabled</span>
+          </div>
+        </div>
+      </footer>
 
     </div>
   );

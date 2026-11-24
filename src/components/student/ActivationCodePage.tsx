@@ -1,26 +1,43 @@
 import React, { useState } from 'react';
 import { Logo } from '../brand/Logo';
 import { WhatsAppButton } from '../whatsapp/WhatsAppButton';
-import { KeyRound, ShieldCheck, Sparkles, CheckCircle2, AlertCircle, HelpCircle, ArrowRight, ArrowLeft } from 'lucide-react';
+import { 
+  KeyRound, 
+  ShieldCheck, 
+  Sparkles, 
+  CheckCircle2, 
+  AlertCircle, 
+  HelpCircle, 
+  ArrowRight, 
+  ArrowLeft,
+  User,
+  Mail,
+  Home
+} from 'lucide-react';
 import { GeneratedActivationCode } from '../../types';
 
 interface ActivationCodePageProps {
   isArabic: boolean;
   activeCodes?: GeneratedActivationCode[];
-  onActivateSuccess?: (code: string, matchedPlan?: string) => void;
+  onActivateSuccess?: (code: string, matchedPlan?: string, studentName?: string, studentEmail?: string) => void;
   onBackToDashboard?: () => void;
+  isLoggedIn?: boolean;
 }
 
 export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
   isArabic,
   activeCodes = [],
   onActivateSuccess,
-  onBackToDashboard
+  onBackToDashboard,
+  isLoggedIn = false
 }) => {
   const [code, setCode] = useState('');
+  const [studentName, setStudentName] = useState('');
+  const [studentEmail, setStudentEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
 
   const handleActivate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,26 +72,36 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
           return;
         }
 
+        const planName = matched.plan;
         setSuccess(
           isArabic
-            ? `🎉 تم بنجاح تفعيل باقة (${matched.plan}) لمدة (${matched.durationMonths}) شهر! تم تفعيل خطة المذاكرة ومزامنة المناهج.`
-            : `🎉 Activation successful! Unlocked (${matched.plan}) plan for (${matched.durationMonths}) months.`
+            ? `🎉 تم بنجاح تفعيل باقة (${matched.plan}) لمدة (${matched.durationMonths}) شهر! جاري تحويلك للصفحة الرئيسية...`
+            : `🎉 Activation successful! Unlocked (${matched.plan}) plan. Redirecting to your home page...`
         );
-        if (onActivateSuccess) {
-          onActivateSuccess(cleanCode, matched.plan);
-        }
+        setRedirecting(true);
+
+        setTimeout(() => {
+          if (onActivateSuccess) {
+            onActivateSuccess(cleanCode, planName, studentName, studentEmail);
+          }
+        }, 1200);
         return;
       }
 
+      // General fallback voucher pattern
       if (cleanCode.startsWith('SSP-') || cleanCode.includes('2026') || cleanCode.length >= 8) {
         setSuccess(
           isArabic 
-            ? 'تم تفعيل باقة الاشتراك بنجاح! تم تفعيل خطة المذاكرة ومزامنة المواد الدراسية.' 
-            : 'Activation successful! Your study plan and syllabus have been unlocked.'
+            ? '🎉 تم تفعيل باقة الاشتراك بنجاح! جاري نقلك إلى صفحتك الرئيسية...' 
+            : '🎉 Activation successful! Redirecting to your main home page...'
         );
-        if (onActivateSuccess) {
-          onActivateSuccess(cleanCode);
-        }
+        setRedirecting(true);
+
+        setTimeout(() => {
+          if (onActivateSuccess) {
+            onActivateSuccess(cleanCode, 'Pro', studentName, studentEmail);
+          }
+        }, 1200);
       } else {
         setError(
           isArabic 
@@ -82,11 +109,11 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
             : 'This code is unrecognized or expired. Please contact support on WhatsApp to obtain a valid code.'
         );
       }
-    }, 700);
+    }, 600);
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6 lg:p-8 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6 lg:p-8 relative overflow-hidden font-sans">
       {/* Background Glows */}
       <div className="absolute top-0 right-1/4 w-96 h-96 bg-brand-blue/15 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-brand-purple/15 rounded-full blur-3xl pointer-events-none" />
@@ -115,27 +142,66 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
               <KeyRound className="w-8 h-8" />
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              {isArabic ? 'تفعيل حساب الطالب واشتراك الباقة' : 'Activate Your Student Account'}
+              {isArabic ? 'تفعيل حساب الطالب والدخول للصفحة الرئيسية' : 'Activate Account & Enter Home Page'}
             </h2>
             <p className="text-sm sm:text-base text-slate-400 mt-2">
               {isArabic 
                 ? 'أدخل كود التفعيل المخصص لك لفتح جدول المذاكرة الذكي، وتحليل الكتب بصيغة PDF، وخطة المراجعة النهائية.'
-                : 'Enter your exclusive activation code to unlock AI study schedules, PDF book analysis, and final revision planners.'}
+                : 'Enter your activation code to unlock AI study schedules, PDF book analysis, and final revision planners.'}
             </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleActivate} className="max-w-xl mx-auto space-y-5">
+          <form onSubmit={handleActivate} className="max-w-xl mx-auto space-y-4">
+            
+            {/* If user is not logged in, ask for their name & email to bind */}
+            {!isLoggedIn && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {isArabic ? 'اسمك بالكامل (اختياري)' : 'Full Name (Optional)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={studentName}
+                      onChange={(e) => setStudentName(e.target.value)}
+                      placeholder={isArabic ? 'مثال: يوسف منصور' : 'e.g. Youssef'}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs pl-9 rtl:pl-3 rtl:pr-9"
+                    />
+                    <User className="w-3.5 h-3.5 text-slate-400 absolute top-3 left-3 rtl:left-auto rtl:right-3" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {isArabic ? 'البريد الإلكتروني (اختياري)' : 'Email (Optional)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      value={studentEmail}
+                      onChange={(e) => setStudentEmail(e.target.value)}
+                      placeholder="student@example.com"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs pl-9 rtl:pl-3 rtl:pr-9"
+                    />
+                    <Mail className="w-3.5 h-3.5 text-slate-400 absolute top-3 left-3 rtl:left-auto rtl:right-3" />
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-semibold text-slate-300 mb-2">
-                {isArabic ? 'رمز / كود التفعيل' : 'Activation Code'}
+                {isArabic ? 'رمز / كود التفعيل المعتمد' : 'Activation Code'}
               </label>
               <div className="relative">
                 <input
                   type="text"
+                  required
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder={isArabic ? 'مثال: SSP-PRO-9842-CAIR' : 'e.g. SSP-PRO-9842-CAIR'}
+                  placeholder={isArabic ? 'مثال: SSP-PRO-2026-XXXX' : 'e.g. SSP-PRO-2026-XXXX'}
                   className="w-full px-5 py-4 rounded-2xl bg-slate-900/90 border-2 border-slate-700 focus:border-brand-blue-electric focus:ring-4 focus:ring-brand-blue-electric/20 text-white placeholder-slate-500 font-mono text-center text-lg tracking-wider transition-all"
                   dir="ltr"
                 />
@@ -146,30 +212,38 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
             </div>
 
             {error && (
-              <div className="p-4 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-sm flex items-start gap-3">
+              <div className="p-4 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-sm flex items-start gap-3 animate-in fade-in">
                 <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
             {success && (
-              <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-sm flex items-start gap-3">
+              <div className="p-4 rounded-xl bg-emerald-950/70 border border-emerald-500/50 text-emerald-200 text-sm flex items-start gap-3 animate-in fade-in">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                <span>{success}</span>
+                <div>
+                  <div className="font-bold">{success}</div>
+                  {redirecting && (
+                    <div className="text-xs text-emerald-300/80 mt-1 flex items-center gap-2">
+                      <span className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                      <span>{isArabic ? 'جاري فتح صفحتك الرئيسية...' : 'Launching your home dashboard...'}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || redirecting}
               className="w-full py-4 rounded-xl font-bold text-base text-white bg-gradient-to-r from-brand-blue to-brand-purple hover:from-brand-blue-dark hover:to-brand-purple-dark transition-all duration-300 shadow-glow-combo active:scale-[0.99] flex items-center justify-center gap-2"
             >
-              {loading ? (
+              {loading || redirecting ? (
                 <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
                   <Sparkles className="w-5 h-5" />
-                  <span>{isArabic ? 'تأكيد وتفعيل الحساب الآن' : 'Verify & Activate Account'}</span>
+                  <span>{isArabic ? 'تأكيد الكود والدخول للصفحة الرئيسية' : 'Verify Code & Enter Home Page'}</span>
                 </>
               )}
             </button>
