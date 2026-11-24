@@ -46,6 +46,10 @@ interface StudentDashboardViewProps {
   onToggleLanguage?: () => void;
   onUpdateStudent?: (updated: Student) => void;
   onSavePlan?: (plan: GeneratedPlan) => void;
+  /** رفع ملف الكتاب على Firebase Storage */
+  onUploadBookFile?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
+  /** حذف ملف كتاب من Firebase Storage */
+  onDeleteBookFile?: (storagePath?: string) => Promise<void>;
 }
 
 type SubTab = 'home' | 'plan' | 'books' | 'exam' | 'settings' | 'devices';
@@ -64,7 +68,9 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   onLogout,
   onToggleLanguage,
   onUpdateStudent,
-  onSavePlan
+  onSavePlan,
+  onUploadBookFile,
+  onDeleteBookFile
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('home');
   const [showBuilder, setShowBuilder] = useState(false);
@@ -155,6 +161,11 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
 
   const handleDeleteBook = (book: BookPdf) => {
     if (!onUpdateStudent) return;
+
+    // امسح ملف الـ PDF من Firebase Storage كمان
+    if (book.storagePath && onDeleteBookFile) {
+      onDeleteBookFile(book.storagePath);
+    }
 
     // لو الخطة الحالية مبنية على الكتاب ده، بنمسح الخطة مع الكتاب
     const planUsesBook = plan?.bookId === book.id;
@@ -772,12 +783,23 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                       >
                         {isArabic ? 'تفاصيل' : 'Details'}
                       </button>
-                      <button
-                        onClick={() => setShowBuilder(true)}
-                        className="py-2 rounded-xl bg-brand-purple/20 text-brand-purple-light text-[11px] font-bold border border-brand-purple/30"
-                      >
-                        {isArabic ? 'خطة' : 'Plan'}
-                      </button>
+                      {pdf.fileUrl ? (
+                        <a
+                          href={pdf.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="py-2 rounded-xl bg-emerald-950/50 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 text-center"
+                        >
+                          {isArabic ? 'فتح الملف' : 'Open file'}
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => setShowBuilder(true)}
+                          className="py-2 rounded-xl bg-brand-purple/20 text-brand-purple-light text-[11px] font-bold border border-brand-purple/30"
+                        >
+                          {isArabic ? 'خطة' : 'Plan'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -956,6 +978,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           isArabic={isArabic}
           onCancel={() => setShowBuilder(false)}
           onSubmit={handleCreatePlan}
+          onUpload={onUploadBookFile}
         />
       )}
 

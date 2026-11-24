@@ -3,8 +3,8 @@ import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, Subscrip
 import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS, INITIAL_ACTIVATION_CODES } from './data/mockData';
 import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
-import { WhatsAppButton } from './components/whatsapp/WhatsAppButton';
 import { StudentMonitoring } from './components/admin/StudentMonitoring';
+import { StudentDeletionPanel } from './components/admin/StudentDeletionPanel';
 import { ActivationCodeGenerator } from './components/admin/ActivationCodeGenerator';
 import { StudentProfileModal } from './components/admin/StudentProfileModal';
 import { AdminEditModal } from './components/admin/AdminEditModal';
@@ -14,6 +14,17 @@ import { StudentSupportMode } from './components/admin/StudentSupportMode';
 import { ActivationCodePage } from './components/student/ActivationCodePage';
 import { StudentDashboardView } from './components/student/StudentDashboardView';
 import { LoginPage } from './components/auth/LoginPage';
+import {
+  uploadBookFile,
+  deleteBookFile,
+  subscribeToStudents,
+  saveStudent,
+  deleteStudent as deleteStudentCloud,
+  seedStudentsIfEmpty,
+  pushAuditLog,
+  checkFirebaseConnection
+} from './lib/firebaseRepo';
+import { initAnalytics } from './lib/firebase';
 import { 
   Users, 
   FileCheck2, 
@@ -21,7 +32,10 @@ import {
   Globe, 
   LogOut,
   ShieldCheck,
-  Home
+  Home,
+  UserX,
+  Cloud,
+  CloudOff
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -48,26 +62,63 @@ export const App: React.FC = () => {
     return localStorage.getItem('ssp_admin_auth') === 'true' ? 'students' : 'login';
   });
 
-  // Data State
-  const [students, setStudents] = useState<Student[]>(() => {
-    try {
-      const raw = localStorage.getItem('ssp_students');
-      if (raw) {
-        const parsed = JSON.parse(raw) as Student[];
-        if (Array.isArray(parsed) && parsed.length >= 0) return parsed;
-      }
-    } catch {
-      /* ignore corrupted cache */
-    }
-    return INITIAL_STUDENTS;
-  });
+  // Data State (Firestore is the source of truth; local seed is the offline fallback)
+  const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
+  const [cloudConnected, setCloudConnected] = useState<boolean>(false);
+  const [cloudSyncing, setCloudSyncing] = useState<boolean>(true);
 
-  // Persist students (profile, plan, deletions, avatar...) so nothing is lost on refresh
+  // Firebase: analytics + realtime students listener
+  useEffect(() => {
+    initAnalytics();
+
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+
+    const start = async () => {
+      const online = await checkFirebaseConnection();
+      if (cancelled) return;
+      setCloudConnected(online);
+
+      if (online) {
+        // first run: upload the demo students so the dashboard isn't empty
+        await seedStudentsIfEmpty(INITIAL_STUDENTS);
+      }
+
+      unsubscribe = subscribeToStudents(
+        remoteStudents => {
+          if (cancelled) return;
+          if (remoteStudents.length > 0) {
+            // Firestore returns an unordered list; keep newest registrations first
+            const sorted = [...remoteStudents].sort(
+              (a, b) => new Date(b.registrationDate).getTime() - new Date(a.registrationDate).getTime()
+            );
+            setStudents(sorted);
+            setCloudConnected(true);
+          }
+          setCloudSyncing(false);
+        },
+        error => {
+          console.warn('[firebase] students listener error', error);
+          setCloudConnected(false);
+          setCloudSyncing(false);
+        }
+      );
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  // Mirror students locally too (offline fallback between refreshes)
   useEffect(() => {
     try {
       localStorage.setItem('ssp_students', JSON.stringify(students));
     } catch {
-      /* storage full (large avatar) - ignore */
+      /* storage full - ignore */
     }
   }, [students]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
@@ -279,6 +330,7 @@ export const App: React.FC = () => {
 
     // Add to students list (Instantly visible in Super Admin Monitoring!)
     setStudents(prev => [newStudent, ...prev]);
+    if (cloudConnected) saveStudent(newStudent);
 
     // Mark activation code as redeemed
     setActivationCodes(prev => prev.map(c => {
@@ -510,8 +562,17 @@ export const App: React.FC = () => {
   /* ============================================================
      DELETE STUDENT (Super Admin only) + immutable audit entry
      ============================================================ */
-  const handleDeleteStudent = (student: Student) => {
+  /** Fire-and-forget cloud write for a student document */
+  const syncStudentToCloud = (student: Student) => {
+    if (!cloudConnected) return;
+    saveStudent(student);
+  };
+
+  const handleDeleteStudent = async (student: Student) => {
     setStudents(prev => prev.filter(s => s.id !== student.id));
+    if (cloudConnected) {
+      await deleteStudentCloud(student);
+    }
 
     if (currentStudent && currentStudent.id === student.id) {
       setCurrentStudent(null);
@@ -530,10 +591,14 @@ export const App: React.FC = () => {
       changedField: 'accountDeletion',
       oldValue: `${student.fullNameAr || student.fullName} (${student.email})`,
       newValue: 'Account permanently deleted',
-      reason: 'Super Admin deleted the student account from the monitoring dashboard',
+      reason:
+        student.notes?.startsWith('[DELETE REASON]')
+          ? student.notes.replace('[DELETE REASON]', '').trim()
+          : 'Super Admin deleted the student account from the monitoring dashboard',
       timestamp: new Date().toISOString()
     };
     setAuditLogs(prev => [newAuditLog, ...prev]);
+    if (cloudConnected) pushAuditLog(newAuditLog);
 
     showToast(
       isArabic
@@ -556,6 +621,7 @@ export const App: React.FC = () => {
     };
 
     setStudents(prev => prev.map(s => (s.id === student.id ? updated : s)));
+    syncStudentToCloud(updated);
     if (selectedStudent && selectedStudent.id === student.id) setSelectedStudent(updated);
     if (currentStudent && currentStudent.id === student.id) setCurrentStudent(updated);
     setEditingStudent(prev => (prev && prev.id === student.id ? updated : prev));
@@ -576,6 +642,7 @@ export const App: React.FC = () => {
       timestamp: new Date().toISOString()
     };
     setAuditLogs(prev => [newAuditLog, ...prev]);
+    if (cloudConnected) pushAuditLog(newAuditLog);
 
     showToast(
       isArabic
@@ -592,6 +659,7 @@ export const App: React.FC = () => {
     const updated: Student = { ...student, isAdmin: promoting };
 
     setStudents(prev => prev.map(s => (s.id === student.id ? updated : s)));
+    syncStudentToCloud(updated);
     if (selectedStudent && selectedStudent.id === student.id) setSelectedStudent(updated);
     if (currentStudent && currentStudent.id === student.id) {
       setCurrentStudent(updated);
@@ -617,6 +685,7 @@ export const App: React.FC = () => {
       timestamp: new Date().toISOString()
     };
     setAuditLogs(prev => [newAuditLog, ...prev]);
+    if (cloudConnected) pushAuditLog(newAuditLog);
 
     showToast(
       promoting
@@ -633,6 +702,7 @@ export const App: React.FC = () => {
     if (currentStudent && currentStudent.id === updated.id) {
       setCurrentStudent(updated);
     }
+    syncStudentToCloud(updated);
   };
 
   const handleSaveGeneratedPlan = (plan: GeneratedPlan) => {
@@ -669,6 +739,11 @@ export const App: React.FC = () => {
       })
     );
 
+    if (currentStudent && cloudConnected) {
+      const planStudent = students.find(st => st.id === currentStudent.id);
+      if (planStudent) saveStudent({ ...planStudent, generatedPlan: plan });
+    }
+
     showToast(
       isArabic
         ? 'تم بناء خطة المذاكرة والمراجعة من كتابك بنجاح!'
@@ -702,7 +777,11 @@ export const App: React.FC = () => {
   };
 
   // ROUTE PROTECTION: Admin views require either the Super Admin session or a student promoted to admin
-  const isProtectedAdminTab = activeTab === 'students' || activeTab === 'code_generator' || activeTab === 'audit_logs';
+  const isProtectedAdminTab =
+    activeTab === 'students' ||
+    activeTab === 'code_generator' ||
+    activeTab === 'audit_logs' ||
+    activeTab === 'delete_students';
 
   if (isProtectedAdminTab && !canSeeAdminPanel) {
     return (
@@ -794,6 +873,10 @@ export const App: React.FC = () => {
         onToggleLanguage={toggleLanguage}
         onUpdateStudent={handleUpdateStudentProfile}
         onSavePlan={handleSaveGeneratedPlan}
+        onUploadBookFile={(file, bookId) =>
+          currentStudent && cloudConnected ? uploadBookFile(currentStudent.id, bookId, file) : Promise.resolve(null)
+        }
+        onDeleteBookFile={deleteBookFile}
       />
     );
   }
@@ -816,7 +899,16 @@ export const App: React.FC = () => {
       key: 'audit_logs',
       label: isArabic ? 'سجلات التدقيق' : 'Audit Logs',
       icon: <FileCheck2 className="w-5 h-5" />
-    }
+    },
+    ...(isSuperAdmin
+      ? [
+          {
+            key: 'delete_students' as ViewTab,
+            label: isArabic ? 'حذف الطلاب' : 'Delete Students',
+            icon: <UserX className="w-5 h-5" />
+          }
+        ]
+      : [])
   ];
 
   return (
@@ -884,14 +976,42 @@ export const App: React.FC = () => {
                 {auditLogs.length}
               </span>
             </button>
+
+            {/* Tab 4: Delete Students (Super Admin only) */}
+            {isSuperAdmin && (
+              <button
+                onClick={() => setActiveTab('delete_students')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                  activeTab === 'delete_students'
+                    ? 'bg-red-600 text-white shadow-lg'
+                    : 'text-slate-400 hover:text-red-300 hover:bg-red-950/40'
+                }`}
+              >
+                <UserX className="w-4 h-4" />
+                <span>{isArabic ? 'حذف الطلاب' : 'Delete Students'}</span>
+              </button>
+            )}
           </nav>
 
           {/* Header Tools: language, WhatsApp, identity & logout */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
 
-            <div className="hidden lg:block">
-              <WhatsAppButton isArabic={isArabic} variant="pill" />
-            </div>
+            {/* Firebase connection indicator */}
+            <span
+              className={`hidden sm:inline-flex items-center gap-1 px-2 py-1.5 rounded-xl text-[10px] font-bold border ${
+                cloudConnected
+                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
+                  : 'bg-amber-950/50 text-amber-300 border-amber-500/40'
+              }`}
+              title={
+                cloudConnected
+                  ? (isArabic ? 'متصل بـ Firebase' : 'Connected to Firebase')
+                  : (isArabic ? 'وضع محلي — Firebase غير متاح' : 'Local mode — Firebase unavailable')
+              }
+            >
+              {cloudConnected ? <Cloud className="w-3.5 h-3.5" /> : <CloudOff className="w-3.5 h-3.5" />}
+              {cloudSyncing ? '...' : cloudConnected ? (isArabic ? 'سحابي' : 'Cloud') : (isArabic ? 'محلي' : 'Local')}
+            </span>
 
             <button
               onClick={toggleLanguage}
@@ -972,11 +1092,21 @@ export const App: React.FC = () => {
           />
         )}
 
+        {/* View 4: Delete Students (Super Admin only) */}
+        {activeTab === 'delete_students' && isSuperAdmin && (
+          <StudentDeletionPanel
+            students={students}
+            isArabic={isArabic}
+            cloudConnected={cloudConnected}
+            onDeleteStudent={handleDeleteStudent}
+          />
+        )}
+
       </main>
 
       {/* Mobile Bottom Navigation (app-like, thumb friendly) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]">
-        <div className="grid grid-cols-3 gap-1">
+        <div className={`grid gap-1 ${isSuperAdmin ? 'grid-cols-4' : 'grid-cols-3'}`}>
           {navItems.map(item => (
             <button
               key={item.key}
