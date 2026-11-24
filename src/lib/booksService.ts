@@ -17,9 +17,12 @@ import {
   setDoc,
   getDoc,
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  collection,
+  getDocs,
+  writeBatch
 } from 'firebase/firestore';
-import { storage, db, BOOKS_STORAGE_PATH } from './firebase';
+import { storage, db, auth, BOOKS_STORAGE_PATH } from './firebase';
 
 export interface UploadedBookFile {
   url: string;
@@ -124,14 +127,17 @@ const uploadToStorage = async (
 const uploadToFirestore = async (
   studentId: string,
   bookId: string,
-  file: File
+  file: File,
+  onProgress?: (percent: number) => void
 ): Promise<UploadedBookFile | null> => {
   const fileDocId = `${studentId}__${bookId}`;
   const buffer = await file.arrayBuffer();
   const totalChunks = Math.ceil(buffer.byteLength / CHUNK_BYTES);
 
   // 1) مستند البيانات الوصفية (من غير الشرائح)
+  // ownerUid = صاحب الملف — قواعد الأمان بتتحقق منه
   await setDoc(doc(db, FILES_COLLECTION, fileDocId), {
+    ownerUid: auth.currentUser?.uid || null,
     studentId,
     bookId,
     fileName: file.name,
@@ -142,13 +148,21 @@ const uploadToFirestore = async (
     createdAt: serverTimestamp()
   });
 
-  // 2) مستند لكل شريحة — عشان مفيش مستند يعدي حد الـ 1MB
-  for (let index = 0; index < totalChunks; index++) {
-    const slice = buffer.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES);
-    await setDoc(doc(db, FILES_COLLECTION, fileDocId, 'chunks', String(index)), {
-      index,
-      data: arrayBufferToBase64(slice)
-    });
+  // 2) مستند لكل شريحة — عشان مفيش مستند يعدي حد الـ 1MB.
+  // batch كل 8 شرائح: حد Firestore للـ batch هو 10MB، والشريحة ~683KB
+  const BATCH_SIZE = 8;
+  for (let start = 0; start < totalChunks; start += BATCH_SIZE) {
+    const batch = writeBatch(db);
+    const end = Math.min(start + BATCH_SIZE, totalChunks);
+    for (let index = start; index < end; index++) {
+      const slice = buffer.slice(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES);
+      batch.set(doc(db, FILES_COLLECTION, fileDocId, 'chunks', String(index)), {
+        index,
+        data: arrayBufferToBase64(slice)
+      });
+    }
+    await batch.commit();
+    onProgress?.(Math.round((end / totalChunks) * 100));
   }
 
   return {
@@ -165,13 +179,16 @@ const uploadToFirestore = async (
 export const uploadBook = async (
   studentId: string,
   bookId: string,
-  file: File
+  file: File,
+  onProgress?: (percent: number) => void
 ): Promise<UploadedBookFile | null> => {
   const backend = await resolveStorageBackend();
 
   if (backend === 'storage') {
     try {
-      return await uploadToStorage(studentId, bookId, file);
+      const uploaded = await uploadToStorage(studentId, bookId, file);
+      onProgress?.(100);
+      return uploaded;
     } catch (error) {
       console.warn('[books] storage upload failed, falling back to Firestore', error);
       cachedBackend = 'firestore';
@@ -184,7 +201,7 @@ export const uploadBook = async (
   }
 
   try {
-    return await uploadToFirestore(studentId, bookId, file);
+    return await uploadToFirestore(studentId, bookId, file, onProgress);
   } catch (error) {
     console.warn('[books] firestore upload failed', error);
     return null;
@@ -212,10 +229,15 @@ export const getBookFileUrl = async (
       if (!meta.exists()) return null;
       const totalChunks = Number(meta.data()?.totalChunks || 0);
       const parts: string[] = [];
+      // قراءة كل الشرائح مرة واحدة (getDocs) بدل استعلام لكل شريحة
+      const chunksSnap = await getDocs(collection(db, FILES_COLLECTION, fileDocId, 'chunks'));
+      const byIndex = new Map<number, string>();
+      chunksSnap.docs.forEach(d => {
+        byIndex.set(Number((d.data() as { index?: number }).index ?? d.id), String(d.data()?.data || ''));
+      });
       for (let i = 0; i < totalChunks; i++) {
-        const chunk = await getDoc(doc(db, FILES_COLLECTION, fileDocId, 'chunks', String(i)));
-        if (!chunk.exists()) continue;
-        parts.push(String(chunk.data()?.data || ''));
+        const chunk = byIndex.get(i);
+        if (chunk) parts.push(chunk);
       }
       return chunksToBlobUrl(parts, 'application/pdf');
     } catch (error) {
@@ -243,10 +265,13 @@ export const deleteBookFile = async (storagePath?: string): Promise<void> => {
   if (storagePath.startsWith('firestore:')) {
     const fileDocId = storagePath.replace('firestore:', '');
     try {
-      const meta = await getDoc(doc(db, FILES_COLLECTION, fileDocId));
-      const totalChunks = Number(meta.data()?.totalChunks || 0);
-      for (let i = 0; i < totalChunks; i++) {
-        await deleteDoc(doc(db, FILES_COLLECTION, fileDocId, 'chunks', String(i))).catch(() => undefined);
+      // حذف كل الشرائح دفعة واحدة (batch) — أسرع وأكفأ
+      const chunksSnap = await getDocs(collection(db, FILES_COLLECTION, fileDocId, 'chunks'));
+      const refs = chunksSnap.docs.map(d => d.ref);
+      for (let start = 0; start < refs.length; start += 400) {
+        const batch = writeBatch(db);
+        refs.slice(start, start + 400).forEach(r => batch.delete(r));
+        await batch.commit().catch(() => undefined);
       }
       await deleteDoc(doc(db, FILES_COLLECTION, fileDocId)).catch(() => undefined);
     } catch {

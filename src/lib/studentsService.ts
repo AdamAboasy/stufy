@@ -12,6 +12,7 @@ import {
   collection,
   doc,
   setDoc,
+  serverTimestamp,
   deleteDoc,
   getDoc,
   getDocsFromServer,
@@ -20,9 +21,9 @@ import {
   where,
   limit
 } from 'firebase/firestore';
-import { ref, deleteObject } from 'firebase/storage';
-import { db, storage, COLLECTIONS } from './firebase';
+import { db, storage, auth, COLLECTIONS } from './firebase';
 import { Student } from '../types';
+import { deleteBookFile } from './booksService';
 
 const studentsCol = () => collection(db, COLLECTIONS.students);
 
@@ -69,6 +70,23 @@ export const subscribeStudents = (
     }
   );
 };
+
+/**
+ * اشتراك لحظي في مستند طالب واحد — للطالب نفسه (قواعد الأمان بتسمح له
+ * بقراءة ملفه فقط، فمينفعش يشترك في القائمة كلها).
+ */
+export const subscribeStudentById = (
+  id: string,
+  onData: (student: Student | null) => void,
+  onError?: (error: unknown) => void
+): (() => void) =>
+  onSnapshot(
+    doc(db, COLLECTIONS.students, id),
+    snapshot => {
+      onData(snapshot.exists() ? ({ ...(snapshot.data() as Student), id: snapshot.id }) : null);
+    },
+    error => onError?.(error)
+  );
 
 /* ------------------------------------------------------------------ */
 /*  Reads (always from the server for auth-critical lookups)           */
@@ -121,7 +139,13 @@ export const upsertStudent = async (
   try {
     await setDoc(
       doc(db, COLLECTIONS.students, student.id),
-      { ...student, email: (student.email || '').toLowerCase() },
+      {
+        ...student,
+        email: (student.email || '').toLowerCase(),
+        // ملكية المستند — قواعد الأمان بتتحقق منها للطالب
+        ownerUid: student.ownerUid || auth.currentUser?.uid || null,
+        updatedAt: serverTimestamp()
+      },
       { merge: true }
     );
     return { ok: true };
@@ -141,11 +165,11 @@ export const removeStudent = async (
     return { ok: false, error: code };
   }
 
-  // حذف ملفات الكتب (بعد نجاح حذف المستند)
+  // حذف ملفات الكتب (بعد نجاح حذف المستند) — Storage + بديل Firestore
   await Promise.all(
     (student.uploadedPdfs || [])
       .filter(book => !!book.storagePath)
-      .map(book => deleteObject(ref(storage, book.storagePath as string)).catch(() => undefined))
+      .map(book => deleteBookFile(book.storagePath as string).catch(() => undefined))
   );
 
   return { ok: true };

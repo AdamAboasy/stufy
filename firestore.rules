@@ -1,97 +1,126 @@
 rules_version = '2';
 
 // ============================================================
-// Smart Study Planner — Firestore security rules
-// نشر: firebase deploy --only firestore:rules
+// Smart Study Planner — Firestore security rules (PRODUCTION)
+// نشر: انسخ الملف كله والصقه في Console → Firestore → Rules → Publish
 //
-// ⚠️ الوضع الحالي = «وضع تجريبي مفتوح» عشان التطبيق يشتغل على Cloud
-// من غير Firebase Auth. ده مناسب للتطوير/العرض، ولازم يتقفل قبل
-// الاستخدام الحقيقي (شوف البلوك المشروح في آخر الملف).
+// الموديل الأمني:
+//  - كل الكتابة/القراءة للبيانات الحساسة لازم تكون من مستخدم مسجّل (Firebase Auth).
+//  - الدور بيتقرأ من مستند `staff/{uid}` (SUPER_ADMIN / STUDENT_ADMIN / STUDENT).
+//  - الطالب بيشوف ويعدّل ملفه هو بس (معرّف مستنده = uid بتاعه).
+//  - الأدوار العليا (staff) بيكتبها أول أدمن فقط في «نافذة التهيئة» قبل ما
+//    مستند `appMeta/bootstrap` يتكتب، وبعد كده السوبر أدمن بس.
 //
-// Current mode = open (unauthenticated) so the app works on the cloud
-// without Firebase Auth. Tighten it before going to production using
-// the commented block at the bottom.
+// Security model: every sensitive read/write needs a signed-in Firebase Auth
+// user. Roles live in `staff/{uid}`. A student only touches their own
+// document (doc id == uid). See FIREBASE_SETUP.md §8.
 // ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---- Students ----
-    match /students/{studentId} {
-      allow read:   if true;
-      allow create: if true;
-      allow update: if true;
-      allow delete: if true;
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // ---- Audit trail (append-only: create allowed, update/delete blocked) ----
+    function staffRole() {
+      return signedIn() ? get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role : null;
+    }
+
+    function isSuperAdmin() {
+      return signedIn() && staffRole() == 'SUPER_ADMIN';
+    }
+
+    function isAdmin() {
+      return signedIn() && staffRole() in ['SUPER_ADMIN', 'STUDENT_ADMIN'];
+    }
+
+    function isSelf(studentId) {
+      return signedIn() && request.auth.uid == studentId;
+    }
+
+    // نافذة التهيئة: مفتوحة بس قبل ما أول أدمن يقفلها
+    function bootstrapOpen() {
+      return !exists(/databases/$(database)/documents/appMeta/bootstrap);
+    }
+
+    // ---- Staff (roles) ----
+    // المستخدم يقدر يقرأ دوره هو؛ السوبر أدمن يقرأ الكل ويكتب.
+    match /staff/{uid} {
+      allow read: if signedIn() && (isSuperAdmin() || request.auth.uid == uid);
+      // أثناء التهيئة: أول مستخدم مسجّل بيحط دوره بنفسه مرة واحدة
+      allow create: if signedIn()
+                    && request.auth.uid == uid
+                    && bootstrapOpen()
+                    && request.resource.data.role == 'SUPER_ADMIN';
+      // الطالب بيسجّل نفسه STUDENT بعد إنشاء حسابه
+      allow create: if signedIn()
+                    && request.auth.uid == uid
+                    && !bootstrapOpen()
+                    && request.resource.data.role == 'STUDENT';
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // ---- Bootstrap flag (كتابة لمرة واحدة) ----
+    match /appMeta/{docId} {
+      allow read: if true;
+      // السوبر أدمن بس هو اللي بيقفل النافذة (بعد ما دوره اتسجّل)
+      allow create: if signedIn()
+                    && docId == 'bootstrap'
+                    && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role == 'SUPER_ADMIN';
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // ---- Students ----
+    match /students/{studentId} {
+      // الأدمن بيقرأ الكل، والطالب بيقرأ ملفه هو بس
+      allow read: if isAdmin() || isSelf(studentId);
+      // التسجيل الذاتي: الطالب بيكتب مستنده هو بس (id == uid)
+      allow create: if isSelf(studentId)
+                    && request.auth.token.email != null
+                    && request.resource.data.email == request.auth.token.email.lower();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || isSelf(studentId);
+      // الحذف للسوبر أدمن فقط — حذف نهائي
+      allow delete: if isSuperAdmin();
+    }
+
+    // ---- Audit trail (append-only) ----
     match /auditLogs/{logId} {
-      allow read:   if true;
-      allow create: if true;
+      allow read: if isAdmin();
+      // أي مستخدم مسجّل يقدر يضيف سجل — والقراءة للأدمن فقط (append-only)
+      allow create: if signedIn();
       allow update, delete: if false;
     }
 
     // ---- Activation codes ----
+    // `get` مفتوح لقراءة كود واحد (للتحقق أثناء التسجيل) لكن `list` مقفول
+    // عشان محدش يسحب كل الأكواد. الطالب بيعلّم الكود Redeemed بعد التسجيل.
     match /activationCodes/{codeId} {
-      allow read, create, update, delete: if true;
+      allow get:  if true;
+      // القراءة بالقائمة للأدمن فقط — الطالب بيستخدم get على كود واحد
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+      // استهلاك الكود: تحديث الحالة لـ Redeemed فقط
+      allow update: if signedIn()
+                    && request.resource.data.status == 'Redeemed'
+                    && request.resource.data.code == resource.data.code;
     }
 
-    // ---- Book files stored on Firestore (free-plan fallback for Storage) ----
-    // bookFiles/{fileId}  +  bookFiles/{fileId}/chunks/{index}
+    // ---- Book files (free-plan storage fallback) ----
+    // bookFiles/{fileId} + bookFiles/{fileId}/chunks/{index}
     match /bookFiles/{fileId} {
-      allow read, create, update, delete: if true;
-      match /chunks/{chunkId} {
-        allow read, create, update, delete: if true;
-      }
-    }
+      allow read:   if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow update: if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
 
-    // ---- App meta / health check ----
-    match /appMeta/{docId} {
-      allow read, write: if true;
+      match /chunks/{chunkId} {
+        function parentOwner() {
+          return get(/databases/$(database)/documents/bookFiles/$(fileId)).data.ownerUid;
+        }
+        allow read, create, update, delete: if signedIn()
+                    && (isAdmin() || parentOwner() == request.auth.uid);
+      }
     }
   }
 }
-
-// ============================================================
-// 🔒 نسخة الإنتاج (بعد تفعيل Firebase Auth + Custom Claims)
-// Production version — uncomment AFTER adding Firebase Auth and
-// setting the custom claim  role = "SUPER_ADMIN" / "STUDENT_ADMIN".
-// ============================================================
-// service cloud.firestore {
-//   match /databases/{database}/documents {
-//     function signedIn() { return request.auth != null; }
-//     function role() { return signedIn() ? request.auth.token.role : null; }
-//     function isSuperAdmin() { return role() == 'SUPER_ADMIN'; }
-//     function isAdmin() { return role() == 'SUPER_ADMIN' || role() == 'STUDENT_ADMIN'; }
-//     function isSelf(studentId) {
-//       return signedIn() && (request.auth.uid == studentId || request.auth.token.studentId == studentId);
-//     }
-//     match /students/{studentId} {
-//       allow read:   if signedIn() && (isAdmin() || isSelf(studentId));
-//       allow create: if signedIn() && (isAdmin() || isSelf(studentId));
-//       allow update: if signedIn() && (isAdmin() || isSelf(studentId));
-//       allow delete: if isSuperAdmin();
-//     }
-//     match /auditLogs/{logId} {
-//       allow read:   if isAdmin();
-//       allow create: if signedIn();
-//       allow update, delete: if false;
-//     }
-//     match /activationCodes/{codeId} {
-//       allow read:   if signedIn();
-//       allow create, update, delete: if isAdmin();
-//     }
-//     match /bookFiles/{fileId} {
-//       allow read:   if signedIn();
-//       allow create: if signedIn();
-//       allow delete: if signedIn();
-//       match /chunks/{chunkId} {
-//         allow read:   if signedIn();
-//         allow create: if signedIn();
-//       }
-//     }
-//     match /appMeta/{docId} {
-//       allow read:  if signedIn();
-//       allow write: if isAdmin();
-//     }
-//   }
-// }

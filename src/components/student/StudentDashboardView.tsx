@@ -45,7 +45,8 @@ interface StudentDashboardViewProps {
   onLogout: () => void;
   onToggleLanguage?: () => void;
   onUpdateStudent?: (updated: Student) => void;
-  onSavePlan?: (plan: GeneratedPlan) => void;
+  /** baseStudent: أحدث نسخة من الملف (لو فيه تعديل لسه مش ظاهر في الـ state) */
+  onSavePlan?: (plan: GeneratedPlan, baseStudent?: Student) => void;
   /** رفع ملف الكتاب على Firebase Storage */
   onUploadBookFile?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
   /** حذف ملف كتاب من التخزين */
@@ -148,8 +149,8 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           ]
     };
     onUpdateStudent(withBook);
-    // 2) build the schedule from the book
-    onSavePlan(generated);
+    // 2) build the schedule from the book (بنمرّر الملف المحدّث عشان الكتاب يتحفظ معاه)
+    onSavePlan(generated, withBook);
     setShowBuilder(false);
     setActiveSubTab('plan');
     flash(isArabic ? 'تم بناء خطة المذاكرة من كتابك!' : 'Your study plan was built from your book!');

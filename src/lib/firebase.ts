@@ -15,6 +15,7 @@ import {
   type Firestore
 } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { getAuth, type Auth } from 'firebase/auth';
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 
 const env = import.meta.env;
@@ -50,6 +51,9 @@ export const db: Firestore = (() => {
 })();
 export const storage: FirebaseStorage = getStorage(app);
 
+/** Firebase Auth — تسجيل دخول حقيقي (كلمة السر مش في الكود) */
+export const auth: Auth = getAuth(app);
+
 /** Analytics is optional (unsupported in some browsers / SSR previews). */
 let analyticsInstance: Analytics | null = null;
 export const initAnalytics = async (): Promise<Analytics | null> => {
@@ -69,6 +73,8 @@ export const COLLECTIONS = {
   students: 'students',
   auditLogs: 'auditLogs',
   activationCodes: 'activationCodes',
+  bookFiles: 'bookFiles',
+  staff: 'staff',
   meta: 'appMeta'
 } as const;
 

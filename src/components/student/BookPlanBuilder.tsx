@@ -145,24 +145,28 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
 
     let finalBook: BookPdf = draftBook;
 
-    // ارفع الملف على Firebase Storage (لو متاح) قبل بناء الخطة
-    if (onUpload && file) {
+    // الملف إلزامي، ولازم يترفع فعلاً — مفيش «تم» من غير ما الكتاب يتخزن
+    if (onUpload) {
+      if (!file) {
+        setError(isArabic ? 'اختار ملف الكتاب (PDF) الأول.' : 'Please choose the book PDF first.');
+        return;
+      }
       setUploading(true);
       try {
         const uploaded = await onUpload(file, draftBook.id);
-        if (uploaded) {
-          finalBook = { ...draftBook, fileUrl: uploaded.url, storagePath: uploaded.storagePath };
-        } else {
-          setWarning(
+        if (!uploaded) {
+          setError(
             storageBackend === 'storage'
               ? (isArabic
-                  ? 'تم بناء الخطة، لكن رفع الملف فشل (تحقق من قواعد Firebase Storage).'
-                  : 'Plan built, but the file upload failed (check Firebase Storage rules).')
+                  ? 'تعذّر رفع الملف (تحقق من قواعد Firebase Storage).'
+                  : 'The file upload failed (check Firebase Storage rules).')
               : (isArabic
-                  ? 'تم بناء الخطة، لكن تخزين الملف على Firestore فشل (راجع قواعد Firestore).'
-                  : 'Plan built, but storing the file on Firestore failed (check Firestore rules).')
+                  ? 'تعذّر تخزين الملف على Firestore (راجع قواعد Firestore).'
+                  : 'Storing the file on Firestore failed (check Firestore rules).')
           );
+          return;
         }
+        finalBook = { ...draftBook, fileUrl: uploaded.url, storagePath: uploaded.storagePath };
       } finally {
         setUploading(false);
       }

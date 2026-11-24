@@ -10,7 +10,8 @@ import {
   getDoc,
   setDoc,
   onSnapshot,
-  getDocsFromServer
+  getDocsFromServer,
+  getDocsFromCache
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
 import { GeneratedActivationCode } from '../types';
@@ -48,10 +49,14 @@ export const getActivationCode = async (
     /* ignore - fall through to server scan */
   }
 
-  // fallback للبيانات القديمة اللي معرّفها random id
+  // fallback للبيانات القديمة اللي معرّفها random id — من الكاش المحلي فقط
+  // (قراءة القائمة من السيرفر للأدمن بس، فمش بنعملها هنا)
   try {
-    const all = await fetchActivationCodes();
-    return all.find(c => (c.code || '').trim().toUpperCase() === id) || null;
+    const cached = await getDocsFromCache(codesCol());
+    const hit = cached.docs
+      .map(d => ({ ...(d.data() as GeneratedActivationCode), id: d.id }))
+      .find(c => (c.code || '').trim().toUpperCase() === id);
+    return hit || null;
   } catch {
     return null;
   }

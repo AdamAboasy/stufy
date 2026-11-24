@@ -194,6 +194,8 @@ export interface ActivationHistoryItem {
 export interface Student {
   id: string;
   studentId: string; // e.g. "STU-2026-8941"
+  /** uid بتاع Firebase Auth لصاحب المستند (بتتحقق منه قواعد الأمان) */
+  ownerUid?: string;
   fullName: string;
   fullNameAr: string;
   email: string;
