@@ -1,3 +1,4 @@
+import { Avatar } from '../common/Avatar';
 import React, { useState } from 'react';
 import { Student } from '../../types';
 import { Logo } from '../brand/Logo';
@@ -113,10 +114,11 @@ export const StudentSupportMode: React.FC<StudentSupportModeProps> = ({
               <Flame className="w-4 h-4 text-amber-400" />
               <span className="font-bold text-amber-300">{student.performanceReport.studyStreakDays} {isArabic ? 'أيام متتالية' : 'Day Streak'}</span>
             </div>
-            <img
+            <Avatar
               src={student.avatarUrl}
-              alt={student.fullName}
-              className="w-8 h-8 rounded-full border border-brand-blue/40 object-cover"
+              name={student.fullName}
+              gender={student.gender}
+              className="w-8 h-8 rounded-full border border-brand-blue/40"
             />
           </div>
         </div>

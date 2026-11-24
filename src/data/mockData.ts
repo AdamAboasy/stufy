@@ -211,43 +211,7 @@ export const INITIAL_STUDENTS: Student[] = [
         tasksCount: 65,
       }
     ],
-    dailyTasks: [
-      {
-        id: 'task-1',
-        title: 'حل 50 مسألة على قوانين كيرشوف من بنك المعرفة',
-        titleAr: 'حل 50 مسألة على قوانين كيرشوف من بنك المعرفة',
-        subject: 'Physics',
-        scheduledTime: '16:00 - 17:30',
-        durationMinutes: 90,
-        isCompleted: true,
-        streakDays: 14,
-        isOverdue: false,
-        completedAt: '2026-11-22T17:15:00Z',
-      },
-      {
-        id: 'task-2',
-        title: 'مراجعة معادلات أكسدة واختزال الحديد في الفرن العالي',
-        titleAr: 'مراجعة معادلات أكسدة واختزال الحديد في الفرن العالي',
-        subject: 'Chemistry',
-        scheduledTime: '18:00 - 19:15',
-        durationMinutes: 75,
-        isCompleted: true,
-        streakDays: 14,
-        isOverdue: false,
-        completedAt: '2026-11-22T19:10:00Z',
-      },
-      {
-        id: 'task-3',
-        title: 'اختبار تجريبي قصير: دورة الطمث والهرمونات الجنسية',
-        titleAr: 'اختبار تجريبي قصير: دورة الطمث والهرمونات الجنسية',
-        subject: 'Biology',
-        scheduledTime: '20:00 - 21:00',
-        durationMinutes: 60,
-        isCompleted: false,
-        streakDays: 14,
-        isOverdue: false,
-      }
-    ],
+    dailyTasks: [],
     revisionPlanner: {
       targetExamDate: '2027-06-12',
       daysRemaining: 202,
@@ -437,19 +401,7 @@ export const INITIAL_STUDENTS: Student[] = [
         tasksCount: 190,
       }
     ],
-    dailyTasks: [
-      {
-        id: 'task-201',
-        title: 'حل مسائل القيم العظمى والصغرى المطلقة والتطبيقات الهندسية',
-        titleAr: 'حل مسائل القيم العظمى والصغرى المطلقة والتطبيقات الهندسية',
-        subject: 'Mathematics',
-        scheduledTime: '17:00 - 19:00',
-        durationMinutes: 120,
-        isCompleted: true,
-        streakDays: 31,
-        isOverdue: false,
-      }
-    ],
+    dailyTasks: [],
     revisionPlanner: {
       targetExamDate: '2027-06-12',
       daysRemaining: 202,

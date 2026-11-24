@@ -19,6 +19,7 @@ interface AdminEditModalProps {
   isArabic: boolean;
   onClose: () => void;
   onSave: (updatedStudent: Student, generatedLogs: Omit<AuditLog, 'id' | 'timestamp'>[]) => void;
+  canManageAdmins?: boolean; // only the Super Admin may grant / revoke admin access
 }
 
 export const AdminEditModal: React.FC<AdminEditModalProps> = ({
@@ -26,7 +27,8 @@ export const AdminEditModal: React.FC<AdminEditModalProps> = ({
   isOpen,
   isArabic,
   onClose,
-  onSave
+  onSave,
+  canManageAdmins = false
 }) => {
   if (!isOpen) return null;
 
@@ -43,6 +45,7 @@ export const AdminEditModal: React.FC<AdminEditModalProps> = ({
   );
   const [overallProgress, setOverallProgress] = useState(student.overallProgress);
   const [notes, setNotes] = useState(student.notes || '');
+  const [isAdmin, setIsAdmin] = useState<boolean>(!!student.isAdmin);
   
   // Mandatory Reason for Audit Log
   const [adminReason, setAdminReason] = useState('');
@@ -77,6 +80,14 @@ export const AdminEditModal: React.FC<AdminEditModalProps> = ({
     }
     if (overallProgress !== student.overallProgress) {
       changes.push({ field: 'overallProgress', label: isArabic ? 'نسبة التقدم الكلي' : 'Overall Progress', oldVal: `${student.overallProgress}%`, newVal: `${overallProgress}%` });
+    }
+    if (canManageAdmins && isAdmin !== !!student.isAdmin) {
+      changes.push({
+        field: 'isAdmin',
+        label: isArabic ? 'صلاحية الأدمن' : 'Admin Access',
+        oldVal: student.isAdmin ? 'Admin' : 'Regular student',
+        newVal: isAdmin ? 'Admin' : 'Regular student'
+      });
     }
     if (notes !== (student.notes || '')) {
       changes.push({ field: 'notes', label: isArabic ? 'ملاحظات الإدارة' : 'Admin Notes', oldVal: student.notes || 'None', newVal: notes });
@@ -133,7 +144,8 @@ export const AdminEditModal: React.FC<AdminEditModalProps> = ({
       subscriptionPlan,
       subscriptionExpiryDate: `${subscriptionExpiryDate}T23:59:59Z`,
       overallProgress: Number(overallProgress),
-      notes: notes.trim()
+      notes: notes.trim(),
+      isAdmin: canManageAdmins ? isAdmin : !!student.isAdmin
     };
 
     onSave(updatedStudent, generatedLogs);
@@ -290,6 +302,38 @@ export const AdminEditModal: React.FC<AdminEditModalProps> = ({
               />
             </div>
           </div>
+
+          {canManageAdmins && (
+            <button
+              type="button"
+              onClick={() => setIsAdmin(v => !v)}
+              className={`w-full p-4 rounded-2xl border flex items-center justify-between gap-3 text-start transition-colors ${
+                isAdmin
+                  ? 'bg-purple-950/50 border-purple-500/50'
+                  : 'bg-slate-900 border-slate-700 hover:border-purple-500/40'
+              }`}
+            >
+              <div>
+                <div className="text-sm font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className={`w-4 h-4 ${isAdmin ? 'text-purple-300' : 'text-slate-500'}`} />
+                  <span>{isArabic ? 'منح صلاحية أدمن لهذا الطالب' : 'Grant admin access to this student'}</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {isArabic
+                    ? 'الطالب هيفضل طالب عادي، وهيظهر له زرار "لوحة الإدارة" في صفحته.'
+                    : 'He stays a regular student, and an "Admin Panel" button appears on his page.'}
+                </div>
+              </div>
+              <span
+                className={`relative w-12 h-7 rounded-full shrink-0 transition-colors ${isAdmin ? 'bg-purple-600' : 'bg-slate-700'}`}
+                aria-hidden="true"
+              >
+                <span
+                  className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${isAdmin ? 'left-6' : 'left-1'}`}
+                />
+              </span>
+            </button>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">

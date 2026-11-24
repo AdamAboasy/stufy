@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Student, SubscriptionPlan, AccountStatus } from '../../types';
+import { Avatar } from '../common/Avatar';
 import { 
   Search, 
   Filter, 
@@ -21,7 +22,9 @@ import {
   BookOpen, 
   Sparkles,
   ChevronDown,
-  RotateCcw
+  RotateCcw,
+  Trash2,
+  Shield
 } from 'lucide-react';
 
 interface StudentMonitoringProps {
@@ -31,6 +34,7 @@ interface StudentMonitoringProps {
   onEditStudent: (student: Student) => void;
   onLaunchSupportMode: (student: Student) => void;
   onResetPassword: (student: Student) => void;
+  onDeleteStudent?: (student: Student) => void; // only provided for the Super Admin
 }
 
 export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
@@ -39,7 +43,8 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
   onSelectStudent,
   onEditStudent,
   onLaunchSupportMode,
-  onResetPassword
+  onResetPassword,
+  onDeleteStudent
 }) => {
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -347,9 +352,94 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
 
       </div>
 
-      {/* Main Student Records Interactive Table */}
+      {/* Mobile card list (phones): the wide table is replaced by one card per student */}
+      <div className="md:hidden space-y-3">
+        {paginatedStudents.length === 0 ? (
+          <div className="glass-panel rounded-3xl border border-slate-800 py-10 text-center text-slate-500 text-sm">
+            {isArabic ? 'لم يتم العثور على أي طلاب مطابقين لمعايير البحث الحالية.' : 'No students match your query criteria.'}
+          </div>
+        ) : (
+          paginatedStudents.map((student) => (
+            <div key={student.id} className="glass-panel rounded-3xl border border-slate-800 p-4 space-y-3">
+              <div className="flex items-center gap-3" onClick={() => onSelectStudent(student)}>
+                <Avatar src={student.avatarUrl} name={student.fullName} gender={student.gender} className="w-12 h-12 rounded-xl border border-slate-700" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-white text-sm truncate">
+                    {isArabic ? student.fullNameAr : student.fullName}
+                    {student.isAdmin && (
+                      <span className="ms-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-500/40">
+                        {isArabic ? 'أدمن' : 'Admin'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-400 truncate" dir="ltr">{student.email}</div>
+                  <div className="text-[11px] text-slate-400 font-mono" dir="ltr">{student.phoneNumber}</div>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {getStatusBadge(student.status)}
+                  {getPlanBadge(student.subscriptionPlan)}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1 text-[11px]">
+                  <span className="text-slate-400">
+                    {student.uploadedPdfs.length} {isArabic ? 'كتب' : 'books'} • {student.studyPlans.length} {isArabic ? 'خطط' : 'plans'}
+                  </span>
+                  <span className="font-bold text-brand-blue-light">{student.overallProgress}%</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div className="bg-gradient-to-r from-brand-blue to-brand-purple h-full rounded-full" style={{ width: `${student.overallProgress}%` }} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2">
+                <button
+                  onClick={() => onSelectStudent(student)}
+                  className="py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white"
+                >
+                  {isArabic ? 'الملف' : 'Profile'}
+                </button>
+                <button
+                  onClick={() => onEditStudent(student)}
+                  className="py-2.5 rounded-xl bg-brand-blue/15 text-brand-blue-electric border border-brand-blue/30 flex items-center justify-center"
+                  title={isArabic ? 'تعديل' : 'Edit'}
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onResetPassword(student)}
+                  className="py-2.5 rounded-xl bg-purple-950/60 text-purple-300 border border-purple-500/30 flex items-center justify-center"
+                  title={isArabic ? 'كلمة المرور' : 'Password'}
+                >
+                  <Key className="w-4 h-4" />
+                </button>
+                {onDeleteStudent ? (
+                  <button
+                    onClick={() => onDeleteStudent(student)}
+                    className="py-2.5 rounded-xl bg-red-950/60 text-red-300 border border-red-500/30 flex items-center justify-center"
+                    title={isArabic ? 'حذف' : 'Delete'}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onLaunchSupportMode(student)}
+                    className="py-2.5 rounded-xl bg-amber-500/10 text-amber-300 border border-amber-500/30 flex items-center justify-center"
+                    title={isArabic ? 'معاينة' : 'Inspect'}
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Main Student Records Interactive Table (tablet & desktop) */}
       <div className="glass-panel rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-right rtl:text-right ltr:text-left text-xs">
             
             {/* Table Header with all required columns */}
@@ -388,14 +478,21 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
                       {/* Full Name, Avatar, Student ID */}
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
-                          <img
+                          <Avatar
                             src={student.avatarUrl}
-                            alt={student.fullName}
-                            className="w-10 h-10 rounded-xl object-cover border border-slate-700 shrink-0 group-hover:border-brand-blue transition-colors"
+                            name={student.fullName}
+                            gender={student.gender}
+                            className="w-10 h-10 rounded-xl border border-slate-700 group-hover:border-brand-blue transition-colors"
                           />
                           <div>
                             <div className="font-bold text-white text-sm group-hover:text-brand-blue-electric transition-colors">
                               {isArabic ? student.fullNameAr : student.fullName}
+                              {student.isAdmin && (
+                                <span className="ms-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-500/40 align-middle">
+                                  <Shield className="w-3 h-3" />
+                                  {isArabic ? 'أدمن' : 'Admin'}
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -518,6 +615,17 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
                           >
                             {isArabic ? 'الملف' : 'Profile'}
                           </button>
+
+                          {/* Delete Student (Super Admin only) */}
+                          {onDeleteStudent && (
+                            <button
+                              onClick={() => onDeleteStudent(student)}
+                              title={isArabic ? 'حذف الطالب' : 'Delete student'}
+                              className="p-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/70 text-red-300 border border-red-500/30 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
 
                         </div>
                       </td>

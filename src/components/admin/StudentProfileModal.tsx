@@ -1,3 +1,4 @@
+import { Avatar } from '../common/Avatar';
 import React, { useState } from 'react';
 import { Student, RegisteredDevice, BookPdf, Subject, StudyPlan, DailyTask, RevisionRound, ActivationHistoryItem } from '../../types';
 import { 
@@ -101,10 +102,11 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
         {/* Top Header */}
         <div className="p-4 sm:p-6 border-b border-slate-800 bg-slate-900/60 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <img
+            <Avatar
               src={student.avatarUrl}
-              alt={student.fullName}
-              className="w-16 h-16 rounded-2xl object-cover border-2 border-brand-blue/40 shadow-glow-blue/30 shrink-0"
+              name={student.fullName}
+              gender={student.gender}
+              className="w-16 h-16 rounded-2xl border-2 border-brand-blue/40"
             />
             <div>
               <div className="flex flex-wrap items-center gap-2">

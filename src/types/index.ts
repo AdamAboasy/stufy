@@ -130,6 +130,48 @@ export interface ActivationHistoryItem {
   paymentMethod: string;
 }
 
+export type Gender = 'male' | 'female';
+
+export interface EducationStageOption {
+  value: string;
+  ar: string;
+  en: string;
+}
+
+export const EDUCATION_STAGES: EducationStageOption[] = [
+  { value: 'primary', ar: 'المرحلة الابتدائية', en: 'Primary School' },
+  { value: 'preparatory', ar: 'المرحلة الإعدادية', en: 'Preparatory School' },
+  { value: 'secondary-1', ar: 'الصف الأول الثانوي', en: '1st Secondary' },
+  { value: 'secondary-2', ar: 'الصف الثاني الثانوي', en: '2nd Secondary' },
+  { value: 'secondary-3', ar: 'الصف الثالث الثانوي', en: '3rd Secondary' },
+  { value: 'university', ar: 'المرحلة الجامعية', en: 'University' }
+];
+
+export interface StudyPlanTask {
+  id: string;
+  date: string; // YYYY-MM-DD (local date)
+  kind: 'study' | 'revision';
+  round: number; // 0 = first study pass, 1..n = revision rounds
+  pagesFrom: number;
+  pagesTo: number;
+  estimatedMinutes: number;
+  isCompleted: boolean;
+  completedAt?: string;
+}
+
+export interface BookStudyPlan {
+  id: string;
+  bookTitle: string;
+  subject: string;
+  originalFilename: string;
+  pageCount: number;
+  examDate: string; // YYYY-MM-DD
+  revisionRounds: number;
+  createdAt: string;
+  startDate: string; // YYYY-MM-DD
+  tasks: StudyPlanTask[];
+}
+
 export interface Student {
   id: string;
   studentId: string; // e.g. "STU-2026-8941"
@@ -157,6 +199,10 @@ export interface Student {
   activationHistory: ActivationHistoryItem[];
   overallProgress: number; // 0-100
   notes?: string;
+  gender?: Gender;
+  educationStage?: string; // EDUCATION_STAGES value
+  isAdmin?: boolean; // a student who is also granted admin-panel access
+  bookPlans?: BookStudyPlan[]; // study plans generated from the student's uploaded books
 }
 
 export interface AuditLog {
@@ -189,5 +235,5 @@ export interface GeneratedActivationCode {
   createdByName: string;
 }
 
-export type ViewTab = 'students' | 'code_generator' | 'audit_logs' | 'activation_page' | 'student_dashboard' | 'login';
+export type ViewTab = 'students' | 'code_generator' | 'audit_logs' | 'activation_page' | 'student_dashboard' | 'student_settings' | 'login';
 

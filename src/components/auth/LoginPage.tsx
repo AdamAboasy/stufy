@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Logo } from '../brand/Logo';
 import { WhatsAppButton } from '../whatsapp/WhatsAppButton';
-import { UserRole, GeneratedActivationCode } from '../../types';
+import { UserRole, GeneratedActivationCode, EDUCATION_STAGES, Gender } from '../../types';
+import { isValidPhone, normalizePhone } from '../../utils/validators';
 import { 
   Lock, 
   Mail, 
@@ -12,6 +13,7 @@ import {
   ShieldAlert,
   UserCheck,
   User,
+  Phone,
   Sparkles,
   ArrowRight,
   ArrowLeft
@@ -20,12 +22,15 @@ import {
 export interface LoginPageProps {
   isArabic: boolean;
   activeCodes?: GeneratedActivationCode[];
-  onLoginSuccess: (role: UserRole, userEmail: string) => void;
+  onLoginSuccess: (role: UserRole, userEmail: string) => { success: boolean; error?: string };
   onRegisterStudent: (data: {
     fullName: string;
     email: string;
     password: string;
     activationCode: string;
+    phoneNumber: string;
+    gender: Gender;
+    educationStage: string;
   }) => { success: boolean; error?: string };
   onGoToActivation: () => void;
   onToggleLanguage?: () => void;
@@ -47,6 +52,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [activationCode, setActivationCode] = useState('');
+  const [phone, setPhone] = useState('');
+  const [stage, setStage] = useState('');
+  const [gender, setGender] = useState<Gender | ''>('');
   
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -102,6 +110,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           return;
         }
 
+        if (!isValidPhone(phone)) {
+          setErrorMessage(isArabic ? 'اكتب رقم تليفون صحيح (أرقام فقط، مثال: 01012345678).' : 'Please enter a valid phone number.');
+          return;
+        }
+
+        if (!stage) {
+          setErrorMessage(isArabic ? 'اختر المرحلة الدراسية.' : 'Please choose your education stage.');
+          return;
+        }
+
+        if (!gender) {
+          setErrorMessage(isArabic ? 'اختر النوع (ذكر أو أنثى).' : 'Please choose your gender.');
+          return;
+        }
+
         const cleanCode = activationCode.trim().toUpperCase();
         if (!cleanCode) {
           setErrorMessage(isArabic ? 'يرجى إدخال كود التفعيل لتفعيل حسابك.' : 'Please enter your activation code to unlock your account.');
@@ -113,7 +136,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           fullName: fullName.trim(),
           email: cleanEmail,
           password,
-          activationCode: cleanCode
+          activationCode: cleanCode,
+          phoneNumber: normalizePhone(phone),
+          gender,
+          educationStage: stage
         });
 
         if (!result.success) {
@@ -131,7 +157,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       // CASE 3: STUDENT PORTAL - SIGN IN
       if (studentAuthMode === 'signin') {
         if (cleanEmail && password.length >= 4) {
-          onLoginSuccess('STUDENT', cleanEmail);
+          const result = onLoginSuccess('STUDENT', cleanEmail);
+          if (!result.success) {
+            setErrorMessage(result.error || (isArabic ? 'تعذر تسجيل الدخول.' : 'Could not sign in.'));
+          }
         } else {
           setErrorMessage(
             isArabic
@@ -312,11 +341,77 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder={isArabic ? 'مثال: يوسف أحمد منصور' : 'e.g., Youssef Ahmed'}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
+                    className="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-sm pl-10 rtl:pl-4 rtl:pr-10"
                   />
                   <User className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
                 </div>
               </div>
+            )}
+
+            {/* Field: Phone, Education stage, Gender (Student Register Mode Only) */}
+            {role === 'STUDENT' && studentAuthMode === 'register' && (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {isArabic ? 'رقم التليفون' : 'Phone Number'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      required
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="01012345678"
+                      dir="ltr"
+                      className="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-sm pl-10 rtl:pl-4 rtl:pr-10 rtl:text-right"
+                    />
+                    <Phone className="w-4 h-4 text-slate-400 absolute top-3.5 left-3.5 rtl:left-auto rtl:right-3.5" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {isArabic ? 'المرحلة الدراسية' : 'Education Stage'}
+                  </label>
+                  <select
+                    required
+                    value={stage}
+                    onChange={(e) => setStage(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-sm"
+                  >
+                    <option value="">{isArabic ? '— اختر مرحلتك —' : '— Choose your stage —'}</option>
+                    {EDUCATION_STAGES.map(s => (
+                      <option key={s.value} value={s.value}>{isArabic ? s.ar : s.en}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {isArabic ? 'النوع' : 'Gender'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      ['male', isArabic ? 'ذكر' : 'Male'],
+                      ['female', isArabic ? 'أنثى' : 'Female']
+                    ] as Array<[Gender, string]>).map(([value, label]) => (
+                      <button
+                        type="button"
+                        key={value}
+                        onClick={() => setGender(value)}
+                        className={`py-3 rounded-xl text-sm font-bold border transition-colors ${
+                          gender === value
+                            ? 'bg-brand-blue text-white border-brand-blue'
+                            : 'bg-slate-900/90 text-slate-300 border-slate-700 hover:border-brand-blue/60'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Field 2: Email */}
@@ -333,7 +428,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com"
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-sm pl-10 rtl:pl-4 rtl:pr-10"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
               </div>
@@ -362,7 +457,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-sm pl-10 rtl:pl-4 rtl:pr-10"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
               </div>
