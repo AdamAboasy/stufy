@@ -6,6 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    host: true
+    host: true,
+    // Allow the sandbox preview hosts (e.g. 5173-xxxx.e2b.app) to load the app
+    allowedHosts: true
   }
 });

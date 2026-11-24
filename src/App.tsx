@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan } from './types';
+import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan } from './types';
 import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS, INITIAL_ACTIVATION_CODES } from './data/mockData';
+import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
 import { WhatsAppButton } from './components/whatsapp/WhatsAppButton';
 import { StudentMonitoring } from './components/admin/StudentMonitoring';
@@ -19,7 +20,8 @@ import {
   KeyRound, 
   Globe, 
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  Home
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -34,8 +36,12 @@ export const App: React.FC = () => {
     return localStorage.getItem('ssp_admin_email') || 'adam.sherif.aboasy@gmail.com';
   });
   const [currentRole, setCurrentRole] = useState<UserRole>(() => {
-    return localStorage.getItem('ssp_admin_auth') === 'true' ? 'SUPER_ADMIN' : 'STUDENT';
+    if (localStorage.getItem('ssp_admin_auth') === 'true') return 'SUPER_ADMIN';
+    return localStorage.getItem('ssp_role') === 'STUDENT_ADMIN' ? 'STUDENT_ADMIN' : 'STUDENT';
   });
+
+  const isSuperAdmin = currentRole === 'SUPER_ADMIN';
+  const canSeeAdminPanel = isSuperAdmin || currentRole === 'STUDENT_ADMIN';
 
   // Active View Tab: Defaults to 'login' if not authenticated as admin
   const [activeTab, setActiveTab] = useState<ViewTab>(() => {
@@ -43,7 +49,27 @@ export const App: React.FC = () => {
   });
 
   // Data State
-  const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const raw = localStorage.getItem('ssp_students');
+      if (raw) {
+        const parsed = JSON.parse(raw) as Student[];
+        if (Array.isArray(parsed) && parsed.length >= 0) return parsed;
+      }
+    } catch {
+      /* ignore corrupted cache */
+    }
+    return INITIAL_STUDENTS;
+  });
+
+  // Persist students (profile, plan, deletions, avatar...) so nothing is lost on refresh
+  useEffect(() => {
+    try {
+      localStorage.setItem('ssp_students', JSON.stringify(students));
+    } catch {
+      /* storage full (large avatar) - ignore */
+    }
+  }, [students]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
   const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>(INITIAL_ACTIVATION_CODES);
 
@@ -56,6 +82,16 @@ export const App: React.FC = () => {
     }
     return INITIAL_STUDENTS[0];
   });
+
+  // Keep the logged-in student object in sync with the latest students list
+  useEffect(() => {
+    if (!currentStudent) return;
+    const fresh = students.find(s => s.id === currentStudent.id);
+    if (fresh && fresh !== currentStudent) {
+      setCurrentStudent(fresh);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students]);
 
   // Selected Student & Modals State (Super Admin)
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -94,8 +130,19 @@ export const App: React.FC = () => {
           : 'Authenticated successfully! Welcome back to the Super Admin Dashboard.'
       );
     } else {
-      setCurrentRole('STUDENT');
       const matched = students.find(s => s.email.toLowerCase() === userEmail.toLowerCase()) || students[0];
+      if (!matched) {
+        showToast(
+          isArabic
+            ? 'لا يوجد حساب طالب مسجل بهذا البريد. يرجى إنشاء حساب جديد بكود التفعيل.'
+            : 'No student account found for this email. Please register with an activation code.'
+        );
+        setActiveTab('login');
+        return;
+      }
+      const promoted = !!matched.isAdmin;
+      setCurrentRole(promoted ? 'STUDENT_ADMIN' : 'STUDENT');
+      localStorage.setItem('ssp_role', promoted ? 'STUDENT_ADMIN' : 'STUDENT');
       setCurrentStudent(matched);
       localStorage.setItem('ssp_student_id', matched.id);
       setActiveTab('student_dashboard');
@@ -113,6 +160,9 @@ export const App: React.FC = () => {
     email: string;
     password: string;
     activationCode: string;
+    stage?: string;
+    gender?: Gender;
+    phoneNumber?: string;
   }): { success: boolean; error?: string } => {
     const cleanCode = data.activationCode.trim().toUpperCase();
     const matchedCode = activationCodes.find(c => c.code.toUpperCase() === cleanCode);
@@ -159,12 +209,17 @@ export const App: React.FC = () => {
       fullName: data.fullName,
       fullNameAr: data.fullName,
       email: data.email,
-      phoneNumber: '+20 101 001 4590',
-      guardianPhoneNumber: '+20 100 000 0000',
+      phoneNumber: data.phoneNumber?.trim() || '+20 100 000 0000',
+      guardianPhoneNumber: '',
       nationalId: `304051${Math.floor(10000000 + Math.random() * 90000000)}`,
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      academicYear: '3rd Secondary (General Thanawya)',
-      academicYearAr: 'الصف الثالث الثانوي (علمي علوم)',
+      gender: data.gender || 'male',
+      isAdmin: false,
+      avatarUrl:
+        data.gender === 'female'
+          ? 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80'
+          : 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
+      academicYear: findAcademicStage(data.stage)?.labelEn || '3rd Secondary (Thanawya)',
+      academicYearAr: findAcademicStage(data.stage)?.labelAr || 'الصف الثالث الثانوي',
       status: 'Active',
       subscriptionPlan: plan,
       registrationDate: nowIso,
@@ -185,46 +240,28 @@ export const App: React.FC = () => {
           isCurrent: true
         }
       ],
-      uploadedPdfs: templateStudent.uploadedPdfs,
+      uploadedPdfs: [],
       subjects: templateStudent.subjects,
-      dailyTasks: [
-        {
-          id: `task-1-${Date.now()}`,
-          title: 'الفيزياء: حل مسائل قوانين كيرشوف الأول والثاني',
-          titleAr: 'الفيزياء: حل مسائل قوانين كيرشوف الأول والثاني',
-          subject: 'Physics',
-          scheduledTime: '04:30 PM',
-          durationMinutes: 60,
-          isCompleted: false,
-          streakDays: 1,
-          isOverdue: false
-        },
-        {
-          id: `task-2-${Date.now()}`,
-          title: 'الكيمياء: تسمية الألكانات والألكينات بنظام الأيوباك',
-          titleAr: 'الكيمياء: تسمية الألكانات والألكينات بنظام الأيوباك',
-          subject: 'Chemistry',
-          scheduledTime: '06:00 PM',
-          durationMinutes: 45,
-          isCompleted: false,
-          streakDays: 1,
-          isOverdue: false
-        },
-        {
-          id: `task-3-${Date.now()}`,
-          title: 'اللغة العربية: مراجعة إعراب الفعل المضارع وحل 30 سؤال',
-          titleAr: 'اللغة العربية: مراجعة إعراب الفعل المضارع وحل 30 سؤال',
-          subject: 'Arabic',
-          scheduledTime: '08:00 PM',
-          durationMinutes: 45,
-          isCompleted: false,
-          streakDays: 1,
-          isOverdue: false
-        }
-      ],
-      studyPlans: templateStudent.studyPlans,
-      revisionPlanner: templateStudent.revisionPlanner,
-      performanceReport: templateStudent.performanceReport,
+      studyPreferences: undefined,
+      generatedPlan: null,
+      dailyTasks: [],
+      studyPlans: [],
+      revisionPlanner: {
+        targetExamDate: '',
+        daysRemaining: 0,
+        rounds: [],
+        weakPoints: [],
+        nextMockExam: ''
+      },
+      performanceReport: {
+        overallScore: 0,
+        studyStreakDays: 0,
+        totalHoursStudied: 0,
+        quizAccuracyPercent: 0,
+        averageDailyMinutes: 0,
+        subjectMastery: [],
+        weeklyActivity: []
+      },
       activationHistory: [
         {
           id: `act-${Date.now()}`,
@@ -291,8 +328,12 @@ export const App: React.FC = () => {
   // Logout Handler (Locks the dashboard)
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setCurrentRole('STUDENT');
     localStorage.removeItem('ssp_admin_auth');
     localStorage.removeItem('ssp_admin_email');
+    localStorage.removeItem('ssp_role');
+    localStorage.removeItem('ssp_student_id');
+    setCurrentStudent(null);
     setActiveTab('login');
     showToast(
       isArabic
@@ -466,6 +507,133 @@ export const App: React.FC = () => {
     );
   };
 
+  /* ============================================================
+     DELETE STUDENT (Super Admin only) + immutable audit entry
+     ============================================================ */
+  const handleDeleteStudent = (student: Student) => {
+    setStudents(prev => prev.filter(s => s.id !== student.id));
+
+    if (currentStudent && currentStudent.id === student.id) {
+      setCurrentStudent(null);
+      localStorage.removeItem('ssp_student_id');
+    }
+    setSelectedStudent(null);
+    setEditingStudent(null);
+
+    const newAuditLog: AuditLog = {
+      id: `log-del-${Date.now()}`,
+      adminId: 'ADMIN-SUPER-ADAM',
+      adminName: 'Adam Sherif (Super Admin)',
+      targetStudentId: student.studentId,
+      studentName: student.fullName,
+      actionSource: 'ADMIN',
+      changedField: 'accountDeletion',
+      oldValue: `${student.fullNameAr || student.fullName} (${student.email})`,
+      newValue: 'Account permanently deleted',
+      reason: 'Super Admin deleted the student account from the monitoring dashboard',
+      timestamp: new Date().toISOString()
+    };
+    setAuditLogs(prev => [newAuditLog, ...prev]);
+
+    showToast(
+      isArabic
+        ? `تم حذف حساب الطالب (${student.fullNameAr || student.fullName}) نهائياً وتوثيق العملية.`
+        : `Student (${student.fullName}) permanently deleted and logged.`
+    );
+  };
+
+  /* ============================================================
+     PROMOTE / DEMOTE STUDENT TO ADMIN (Super Admin only)
+     ============================================================ */
+  const handleToggleStudentAdmin = (student: Student) => {
+    const promoting = !student.isAdmin;
+    const updated: Student = { ...student, isAdmin: promoting };
+
+    setStudents(prev => prev.map(s => (s.id === student.id ? updated : s)));
+    if (selectedStudent && selectedStudent.id === student.id) setSelectedStudent(updated);
+    if (currentStudent && currentStudent.id === student.id) {
+      setCurrentStudent(updated);
+      if (!isAuthenticated) {
+        setCurrentRole(promoting ? 'STUDENT_ADMIN' : 'STUDENT');
+        localStorage.setItem('ssp_role', promoting ? 'STUDENT_ADMIN' : 'STUDENT');
+      }
+    }
+
+    const newAuditLog: AuditLog = {
+      id: `log-role-${Date.now()}`,
+      adminId: 'ADMIN-SUPER-ADAM',
+      adminName: 'Adam Sherif (Super Admin)',
+      targetStudentId: student.studentId,
+      studentName: student.fullName,
+      actionSource: 'ADMIN',
+      changedField: 'role',
+      oldValue: student.isAdmin ? 'STUDENT_ADMIN' : 'STUDENT',
+      newValue: promoting ? 'STUDENT_ADMIN' : 'STUDENT',
+      reason: promoting
+        ? 'Super Admin granted admin panel access to this student'
+        : 'Super Admin removed admin panel access from this student',
+      timestamp: new Date().toISOString()
+    };
+    setAuditLogs(prev => [newAuditLog, ...prev]);
+
+    showToast(
+      promoting
+        ? (isArabic ? `تم ترقية ${student.fullNameAr} ليصبح أدمن ويمكنه رؤية لوحة الإدارة.` : `${student.fullName} promoted to admin.`)
+        : (isArabic ? `تم إلغاء صلاحيات الأدمن من ${student.fullNameAr}.` : `Admin access removed from ${student.fullName}.`)
+    );
+  };
+
+  /* ============================================================
+     STUDENT SELF-SERVICE SETTINGS (name / avatar / phone / stage)
+     ============================================================ */
+  const handleUpdateStudentProfile = (updated: Student) => {
+    setStudents(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+    if (currentStudent && currentStudent.id === updated.id) {
+      setCurrentStudent(updated);
+    }
+  };
+
+  const handleSaveGeneratedPlan = (plan: GeneratedPlan) => {
+    setStudents(prev =>
+      prev.map(s => {
+        if (!currentStudent || s.id !== currentStudent.id) return s;
+
+        const daysRemaining = Math.max(
+          0,
+          Math.round(
+            (new Date(`${plan.examDate}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) /
+              (24 * 3600 * 1000)
+          )
+        );
+
+        return {
+          ...s,
+          generatedPlan: plan,
+          studyPreferences: {
+            examDate: plan.examDate,
+            revisionRounds: plan.revisionRounds,
+            dailyMinutes: plan.dailyMinutes,
+            daysOff: s.studyPreferences?.daysOff || []
+          },
+          revisionPlanner: {
+            targetExamDate: plan.examDate,
+            daysRemaining,
+            rounds: plan.rounds,
+            weakPoints: s.revisionPlanner?.weakPoints || [],
+            nextMockExam: plan.sessions.find(s => s.kind === 'mock')?.date || ''
+          },
+          lastActivity: new Date().toISOString()
+        };
+      })
+    );
+
+    showToast(
+      isArabic
+        ? 'تم بناء خطة المذاكرة والمراجعة من كتابك بنجاح!'
+        : 'Your study & revision plan was built from your book!'
+    );
+  };
+
   // Password Reset Log Handler
   const handleLogPasswordReset = (studentId: string, studentName: string) => {
     const newAuditLog: AuditLog = {
@@ -491,10 +659,10 @@ export const App: React.FC = () => {
     );
   };
 
-  // ROUTE PROTECTION: If trying to access Super Admin views without authentication, render Login Page
+  // ROUTE PROTECTION: Admin views require either the Super Admin session or a student promoted to admin
   const isProtectedAdminTab = activeTab === 'students' || activeTab === 'code_generator' || activeTab === 'audit_logs';
 
-  if (!isAuthenticated && isProtectedAdminTab) {
+  if (isProtectedAdminTab && !canSeeAdminPanel) {
     return (
       <LoginPage
         isArabic={isArabic}
@@ -539,7 +707,7 @@ export const App: React.FC = () => {
         isArabic={isArabic}
         activeCodes={activationCodes}
         isLoggedIn={!!currentStudent}
-        onBackToDashboard={() => setActiveTab(currentStudent ? 'student_dashboard' : isAuthenticated ? 'students' : 'login')}
+        onBackToDashboard={() => setActiveTab(currentStudent ? 'student_dashboard' : canSeeAdminPanel ? 'students' : 'login')}
         onActivateSuccess={handleStudentRedeemCode}
       />
     );
@@ -548,13 +716,26 @@ export const App: React.FC = () => {
   // IF ON STUDENT DASHBOARD VIEW (الصفحة الرئيسية للطالب):
   if (activeTab === 'student_dashboard') {
     const activeStudentObj = currentStudent || students[0];
+    if (!activeStudentObj) {
+      return (
+        <LoginPage
+          isArabic={isArabic}
+          activeCodes={activationCodes}
+          onLoginSuccess={handleLoginSuccess}
+          onRegisterStudent={handleRegisterStudent}
+          onGoToActivation={() => setActiveTab('activation_page')}
+          onToggleLanguage={toggleLanguage}
+        />
+      );
+    }
     return (
       <StudentDashboardView
         student={activeStudentObj}
         isArabic={isArabic}
+        isAdmin={canSeeAdminPanel}
         onGoToActivation={() => setActiveTab('activation_page')}
         onSwitchToAdmin={() => {
-          if (isAuthenticated) {
+          if (canSeeAdminPanel) {
             setActiveTab('students');
           } else {
             setActiveTab('login');
@@ -562,49 +743,64 @@ export const App: React.FC = () => {
         }}
         onLogout={() => {
           setCurrentStudent(null);
+          setCurrentRole('STUDENT');
           localStorage.removeItem('ssp_student_id');
+          localStorage.removeItem('ssp_role');
           setActiveTab('login');
           showToast(isArabic ? 'تم تسجيل الخروج بنجاح والعودة لصفحة الدخول.' : 'Logged out successfully.');
         }}
         onToggleLanguage={toggleLanguage}
-        onUpdateStudent={(updated) => {
-          setStudents(prev => prev.map(s => s.id === updated.id ? updated : s));
-          setCurrentStudent(updated);
-        }}
+        onUpdateStudent={handleUpdateStudentProfile}
+        onSavePlan={handleSaveGeneratedPlan}
       />
     );
   }
 
-  // DEFAULT: SUPER ADMIN DASHBOARD (AUTHENTICATED ONLY)
+  // DEFAULT: ADMIN DASHBOARD (Super Admin, or student promoted to admin)
   const activeCodesCount = activationCodes.filter(c => c.status === 'Active').length;
+
+  const navItems: { key: ViewTab; label: string; icon: React.ReactNode }[] = [
+    {
+      key: 'students',
+      label: isArabic ? 'الطلاب' : 'Students',
+      icon: <Users className="w-5 h-5" />
+    },
+    {
+      key: 'code_generator',
+      label: isArabic ? 'أكواد التفعيل' : 'Codes',
+      icon: <KeyRound className="w-5 h-5" />
+    },
+    {
+      key: 'audit_logs',
+      label: isArabic ? 'سجلات التدقيق' : 'Audit Logs',
+      icon: <FileCheck2 className="w-5 h-5" />
+    }
+  ];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-brand-blue selection:text-white">
-      
+
       {/* Toast Notification Banner */}
       {toastMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-emerald-900/90 border border-emerald-400/50 text-emerald-100 px-6 py-3 rounded-2xl shadow-glow-whatsapp text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
-          <ShieldCheck className="w-4 h-4 text-emerald-300" />
+        <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-[70] w-[calc(100%-1.5rem)] sm:w-auto sm:max-w-lg bg-emerald-900/95 border border-emerald-400/50 text-emerald-100 px-4 sm:px-6 py-3 rounded-2xl shadow-glow-whatsapp text-[11px] sm:text-xs font-bold flex items-center gap-2 text-center">
+          <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Super Admin Top Navigation Bar */}
-      <header className="bg-slate-900/90 border-b border-slate-800 px-4 sm:px-6 lg:px-8 py-3 sticky top-0 z-40 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-          
-          {/* Brand Logo with Super Admin Badge */}
-          <Logo 
-            variant="admin-dash" 
-            size="md" 
-            isArabic={isArabic} 
+      {/* Admin Top Navigation Bar */}
+      <header className="bg-slate-900/95 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-3">
+
+          <Logo
+            variant="admin-dash"
+            size="sm"
+            isArabic={isArabic}
             onClick={() => setActiveTab('students')}
           />
 
-          {/* Navigation Tabs */}
+          {/* Desktop Navigation Tabs */}
           <nav className="hidden md:flex items-center gap-1.5 bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800">
-            
-            {/* Tab 1: Student Monitoring */}
             <button
               onClick={() => setActiveTab('students')}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -617,7 +813,6 @@ export const App: React.FC = () => {
               <span>{isArabic ? 'مراقبة ومتابعة الطلاب' : 'Student Monitoring'}</span>
             </button>
 
-            {/* Tab 2: Activation Code Generator (Requested Feature) */}
             <button
               onClick={() => setActiveTab('code_generator')}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -633,7 +828,6 @@ export const App: React.FC = () => {
               </span>
             </button>
 
-            {/* Tab 3: Security Audit Logs */}
             <button
               onClick={() => setActiveTab('audit_logs')}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -650,33 +844,46 @@ export const App: React.FC = () => {
             </button>
           </nav>
 
-          {/* Right Header Tools: Language Switcher, WhatsApp Support, Admin Profile & Logout */}
-          <div className="flex items-center gap-3">
-            
-            {/* Quick WhatsApp Support Link */}
+          {/* Header Tools: language, WhatsApp, identity & logout */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
+
             <div className="hidden lg:block">
               <WhatsAppButton isArabic={isArabic} variant="pill" />
             </div>
 
-            {/* Language Toggle */}
             <button
               onClick={toggleLanguage}
               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-bold"
               title={isArabic ? 'Switch to English' : 'التحويل إلى العربية'}
             >
               <Globe className="w-4 h-4 text-brand-blue-light" />
-              <span>{isArabic ? 'English' : 'عربي'}</span>
+              <span className="hidden sm:inline">{isArabic ? 'EN' : 'عربي'}</span>
             </button>
 
-            {/* Super Admin Verified Identity Badge & Logout */}
-            <div className="flex items-center gap-2.5 pl-2 rtl:pl-0 rtl:pr-2 border-l rtl:border-l-0 rtl:border-r border-slate-800">
+            <div className="flex items-center gap-1.5 sm:gap-2 pl-1.5 rtl:pl-0 rtl:pr-1.5 border-l rtl:border-l-0 rtl:border-r border-slate-800">
               <div className="hidden sm:flex flex-col text-right rtl:text-left text-xs">
-                <span className="font-bold text-white leading-none">Adam Sherif</span>
-                <span className="text-[10px] text-purple-400 font-mono mt-0.5" dir="ltr">{adminEmail}</span>
+                <span className="font-bold text-white leading-none">
+                  {isSuperAdmin ? 'Adam Sherif' : (isArabic ? currentStudent?.fullNameAr : currentStudent?.fullName) || 'Student Admin'}
+                </span>
+                <span className="text-[10px] text-purple-400 font-mono mt-0.5 truncate max-w-[140px]" dir="ltr">
+                  {isSuperAdmin ? adminEmail : (isArabic ? 'أدمن طالب' : 'Student Admin')}
+                </span>
               </div>
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-purple to-purple-800 flex items-center justify-center font-bold text-xs text-white shadow-glow-purple/20">
-                AS
+                {isSuperAdmin ? 'AS' : (currentStudent?.fullNameAr || currentStudent?.fullName || 'ST').slice(0, 2)}
               </div>
+
+              {/* Back to my student home page */}
+              {!isSuperAdmin && (
+                <button
+                  onClick={() => setActiveTab('student_dashboard')}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                  title={isArabic ? 'العودة لصفحتي' : 'Back to my page'}
+                >
+                  <Home className="w-4 h-4" />
+                </button>
+              )}
+
               <button
                 onClick={handleLogout}
                 className="p-2 rounded-xl bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 transition-colors"
@@ -690,22 +897,22 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Body Content for Super Admin */}
-      <main className="max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8 flex-1 space-y-6">
-        
-        {/* View 1: Student Monitoring */}
+      {/* Main Body Content (padding bottom so the mobile nav never covers content) */}
+      <main className="max-w-7xl mx-auto w-full p-3 sm:p-6 lg:p-8 flex-1 space-y-6 pb-24 md:pb-8">
+
         {activeTab === 'students' && (
           <StudentMonitoring
             students={students}
             isArabic={isArabic}
-            onSelectStudent={(stu) => setSelectedStudent(stu)}
-            onEditStudent={(stu) => setEditingStudent(stu)}
-            onPasswordReset={(stu) => setPasswordResetStudent(stu)}
-            onSupportMode={(stu) => setSupportModeStudent(stu)}
+            canDelete={isSuperAdmin}
+            onSelectStudent={(stu: Student) => setSelectedStudent(stu)}
+            onEditStudent={(stu: Student) => setEditingStudent(stu)}
+            onSupportMode={(stu: Student) => setSupportModeStudent(stu)}
+            onDeleteStudent={handleDeleteStudent}
+            onToggleStudentAdmin={handleToggleStudentAdmin}
           />
         )}
 
-        {/* View 2: Activation Code Generator */}
         {activeTab === 'code_generator' && (
           <ActivationCodeGenerator
             isArabic={isArabic}
@@ -716,7 +923,6 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* View 3: Immutable Security Audit Logs */}
         {activeTab === 'audit_logs' && (
           <AuditLogViewer
             logs={auditLogs}
@@ -726,21 +932,45 @@ export const App: React.FC = () => {
 
       </main>
 
+      {/* Mobile Bottom Navigation (app-like, thumb friendly) */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]">
+        <div className="grid grid-cols-3 gap-1">
+          {navItems.map(item => (
+            <button
+              key={item.key}
+              onClick={() => setActiveTab(item.key)}
+              className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-[10px] font-bold transition-colors ${
+                activeTab === item.key
+                  ? 'bg-brand-blue/15 text-brand-blue-electric'
+                  : 'text-slate-400 active:bg-slate-800'
+              }`}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
       {/* Full 10-Section Student Profile Modal */}
       {selectedStudent && (
         <StudentProfileModal
           student={selectedStudent}
+          isOpen={!!selectedStudent}
           isArabic={isArabic}
           onClose={() => setSelectedStudent(null)}
-          onEdit={() => {
-            setEditingStudent(selectedStudent);
+          onEdit={(stu: Student) => {
+            setEditingStudent(stu);
             setSelectedStudent(null);
           }}
-          onEnterSupportMode={() => {
-            setSupportModeStudent(selectedStudent);
+          onLaunchSupportMode={(stu: Student) => {
+            setSupportModeStudent(stu);
             setSelectedStudent(null);
           }}
-          onRevokeDevice={(deviceId) => handleRevokeDevice(selectedStudent.id, deviceId)}
+          onGeneratePasswordReset={(stu: Student) => setPasswordResetStudent(stu)}
+          onRevokeDevice={(studentId: string, deviceId: string) => handleRevokeDevice(studentId, deviceId)}
+          onDeleteStudent={isSuperAdmin ? handleDeleteStudent : undefined}
+          onToggleStudentAdmin={isSuperAdmin ? handleToggleStudentAdmin : undefined}
         />
       )}
 
@@ -748,6 +978,7 @@ export const App: React.FC = () => {
       {editingStudent && (
         <AdminEditModal
           student={editingStudent}
+          isOpen={!!editingStudent}
           isArabic={isArabic}
           onClose={() => setEditingStudent(null)}
           onSave={handleSaveStudentModifications}
@@ -758,22 +989,20 @@ export const App: React.FC = () => {
       {passwordResetStudent && (
         <PasswordResetModal
           student={passwordResetStudent}
+          isOpen={!!passwordResetStudent}
           isArabic={isArabic}
           onClose={() => setPasswordResetStudent(null)}
-          onConfirmReset={() => {
-            handleLogPasswordReset(passwordResetStudent.studentId, passwordResetStudent.fullName);
-            setPasswordResetStudent(null);
-          }}
+          onLogResetAction={handleLogPasswordReset}
         />
       )}
 
       {/* Footer */}
-      <footer className="max-w-7xl mx-auto w-full text-center text-xs text-slate-500 py-6 border-t border-slate-800/80">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© 2026 Smart Study Planner (مخطط الدراسة الذكي) • Super Admin Control Center</p>
+      <footer className="max-w-7xl mx-auto w-full text-center text-xs text-slate-500 py-5 border-t border-slate-800/80 mb-16 md:mb-0">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4">
+          <p>© 2026 Smart Study Planner • {isArabic ? 'لوحة التحكم' : 'Control Center'}</p>
           <div className="flex items-center gap-4 text-slate-400">
-            <span>Server: Active (Vite + Cloudflare Edge)</span>
-            <span>Security: SHA-256 Audit Log Enabled</span>
+            <span>{isArabic ? 'الخادم: نشط' : 'Server: Active'}</span>
+            <span>{isArabic ? 'حماية: سجل تدقيق مشفر' : 'Security: SHA-256 Audit'}</span>
           </div>
         </div>
       </footer>

@@ -21,26 +21,42 @@ import {
   BookOpen, 
   Sparkles,
   ChevronDown,
-  RotateCcw
+  RotateCcw,
+  Trash2,
+  ShieldPlus,
+  ShieldMinus,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 
 interface StudentMonitoringProps {
   students: Student[];
   isArabic: boolean;
+  canDelete?: boolean;
   onSelectStudent: (student: Student) => void;
   onEditStudent: (student: Student) => void;
-  onLaunchSupportMode: (student: Student) => void;
-  onResetPassword: (student: Student) => void;
+  onSupportMode?: (student: Student) => void;
+  onLaunchSupportMode?: (student: Student) => void;
+  onResetPassword?: (student: Student) => void;
+  onDeleteStudent?: (student: Student) => void;
+  onToggleStudentAdmin?: (student: Student) => void;
 }
 
 export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
   students,
   isArabic,
+  canDelete = false,
   onSelectStudent,
   onEditStudent,
+  onSupportMode,
   onLaunchSupportMode,
-  onResetPassword
+  onDeleteStudent,
+  onToggleStudentAdmin
 }) => {
+  const launchSupport = onSupportMode || onLaunchSupportMode;
+  // Student awaiting delete confirmation
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState<string>('ALL');
@@ -164,49 +180,49 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
     <div className="space-y-6">
       
       {/* KPI Metric Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-panel p-5 rounded-3xl border border-slate-800 flex items-center justify-between">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+        <div className="glass-panel p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-800 flex items-center justify-between gap-2">
           <div>
             <div className="text-xs text-slate-400 font-semibold">{isArabic ? 'إجمالي الطلاب المسجلين' : 'Total Registered Students'}</div>
-            <div className="text-2xl font-black text-white mt-1">{students.length}</div>
+            <div className="text-xl sm:text-2xl font-black text-white mt-0.5 sm:mt-1">{students.length}</div>
             <div className="text-[11px] text-emerald-400 mt-0.5">{isArabic ? 'جميع المراحل الثانوية' : 'All Academic Stages'}</div>
           </div>
-          <div className="p-3 rounded-2xl bg-brand-blue/20 text-brand-blue-electric border border-brand-blue/30 shadow-glow-blue/20">
+          <div className="p-2 sm:p-3 rounded-2xl bg-brand-blue/20 text-brand-blue-electric border border-brand-blue/30 shadow-glow-blue/20 shrink-0">
             <GraduationCap className="w-6 h-6" />
           </div>
         </div>
 
-        <div className="glass-panel p-5 rounded-3xl border border-slate-800 flex items-center justify-between">
+        <div className="glass-panel p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-800 flex items-center justify-between gap-2">
           <div>
             <div className="text-xs text-slate-400 font-semibold">{isArabic ? 'المشتركون النشطون' : 'Active Subscriptions'}</div>
-            <div className="text-2xl font-black text-emerald-400 mt-1">{activeCount}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">{Math.round((activeCount / students.length) * 100)}% {isArabic ? 'نسبة النشاط' : 'Active Ratio'}</div>
+            <div className="text-xl sm:text-2xl font-black text-emerald-400 mt-0.5 sm:mt-1">{activeCount}</div>
+            <div className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5">{Math.round((activeCount / students.length) * 100)}% {isArabic ? 'نسبة النشاط' : 'Active Ratio'}</div>
           </div>
-          <div className="p-3 rounded-2xl bg-emerald-950 text-emerald-400 border border-emerald-500/30">
+          <div className="p-2 sm:p-3 rounded-2xl bg-emerald-950 text-emerald-400 border border-emerald-500/30">
             <UserCheck className="w-6 h-6" />
           </div>
         </div>
 
-        <div className="glass-panel p-5 rounded-3xl border border-slate-800 flex items-center justify-between">
+        <div className="glass-panel p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-800 flex items-center justify-between gap-2">
           <div>
             <div className="text-xs text-slate-400 font-semibold">{isArabic ? 'ينتهي خلال 7 أيام' : 'Expiring Within 7 Days'}</div>
-            <div className="text-2xl font-black text-amber-400 mt-1">{expiring7Count}</div>
+            <div className="text-xl sm:text-2xl font-black text-amber-400 mt-0.5 sm:mt-1">{expiring7Count}</div>
             <div className="text-[11px] text-amber-300 mt-0.5">{isArabic ? 'يتطلب إشعار تجديد' : 'Renewal Needed'}</div>
           </div>
-          <div className="p-3 rounded-2xl bg-amber-950 text-amber-400 border border-amber-500/30">
+          <div className="p-2 sm:p-3 rounded-2xl bg-amber-950 text-amber-400 border border-amber-500/30">
             <Clock className="w-6 h-6" />
           </div>
         </div>
 
-        <div className="glass-panel p-5 rounded-3xl border border-slate-800 flex items-center justify-between">
+        <div className="glass-panel p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-800 flex items-center justify-between gap-2">
           <div>
             <div className="text-xs text-slate-400 font-semibold">{isArabic ? 'متوسط التقدم الدراسي' : 'Avg Study Progress'}</div>
-            <div className="text-2xl font-black bg-gradient-to-r from-brand-blue-electric to-brand-purple-light bg-clip-text text-transparent mt-1">
+            <div className="text-xl sm:text-2xl font-black bg-gradient-to-r from-brand-blue-electric to-brand-purple-light bg-clip-text text-transparent mt-0.5 sm:mt-1">
               {avgProgress}%
             </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">{isArabic ? 'معدل إكمال المهام' : 'Curriculum Completion'}</div>
+            <div className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5">{isArabic ? 'معدل إكمال المهام' : 'Curriculum Completion'}</div>
           </div>
-          <div className="p-3 rounded-2xl bg-purple-950 text-brand-purple-light border border-purple-500/30 shadow-glow-purple/20">
+          <div className="p-2 sm:p-3 rounded-2xl bg-purple-950 text-brand-purple-light border border-purple-500/30 shadow-glow-purple/20">
             <TrendingUp className="w-6 h-6" />
           </div>
         </div>
@@ -216,7 +232,7 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
       <div className="glass-panel rounded-3xl p-5 border border-slate-800 space-y-4">
         
         {/* Row 1: Search & Filter Dropdowns */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3">
           
           {/* Search Box */}
           <div className="lg:col-span-2 relative">
@@ -348,7 +364,7 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
       </div>
 
       {/* Main Student Records Interactive Table */}
-      <div className="glass-panel rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
+      <div className="glass-panel rounded-3xl border border-slate-800 overflow-hidden shadow-2xl hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-right rtl:text-right ltr:text-left text-xs">
             
@@ -402,6 +418,11 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
                                 {student.studentId}
                               </span>
                               {getStatusBadge(student.status)}
+                              {student.isAdmin && (
+                                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-500/40">
+                                  {isArabic ? 'أدمن' : 'ADMIN'}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -485,13 +506,15 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
                         <div className="inline-flex items-center gap-1">
                           
                           {/* Inspect / Support Mode */}
-                          <button
-                            onClick={() => onLaunchSupportMode(student)}
-                            title={isArabic ? 'معاينة تجربة الطالب (Support Mode)' : 'Inspect Student Experience (Support Mode)'}
-                            className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
+                          {launchSupport && (
+                            <button
+                              onClick={() => launchSupport(student)}
+                              title={isArabic ? 'معاينة تجربة الطالب (Support Mode)' : 'Inspect Student Experience (Support Mode)'}
+                              className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          )}
 
                           {/* Edit Student */}
                           <button
@@ -504,7 +527,7 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
 
                           {/* Password Reset Workflow */}
                           <button
-                            onClick={() => onResetPassword(student)}
+                            onClick={() => onSelectStudent(student)}
                             title={isArabic ? 'إعادة ضبط كلمة المرور' : 'Password Reset'}
                             className="p-1.5 rounded-lg bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-500/30 transition-colors"
                           >
@@ -518,6 +541,36 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
                           >
                             {isArabic ? 'الملف' : 'Profile'}
                           </button>
+
+                          {/* Promote / Demote to Admin */}
+                          {onToggleStudentAdmin && (
+                            <button
+                              onClick={() => onToggleStudentAdmin(student)}
+                              title={
+                                student.isAdmin
+                                  ? (isArabic ? 'إلغاء صلاحيات الأدمن' : 'Remove admin role')
+                                  : (isArabic ? 'ترقية الطالب لأدمن' : 'Promote to admin')
+                              }
+                              className={`p-1.5 rounded-lg border transition-colors ${
+                                student.isAdmin
+                                  ? 'bg-red-950/60 hover:bg-red-900/60 text-red-300 border-red-500/30'
+                                  : 'bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border-purple-500/30'
+                              }`}
+                            >
+                              {student.isAdmin ? <ShieldMinus className="w-4 h-4" /> : <ShieldPlus className="w-4 h-4" />}
+                            </button>
+                          )}
+
+                          {/* Delete Student */}
+                          {canDelete && onDeleteStudent && (
+                            <button
+                              onClick={() => setStudentToDelete(student)}
+                              title={isArabic ? 'حذف الطالب نهائياً' : 'Delete student'}
+                              className="p-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-500/40 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
 
                         </div>
                       </td>
@@ -577,6 +630,201 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
         </div>
 
       </div>
+
+
+      {/* ================= MOBILE CARD LIST (hidden on desktop) ================= */}
+      <div className="md:hidden space-y-3">
+        {paginatedStudents.length === 0 && (
+          <div className="glass-panel rounded-2xl p-8 text-center text-slate-500 text-sm border border-slate-800">
+            {isArabic ? 'لا يوجد طلاب مطابقين للبحث.' : 'No students match your query.'}
+          </div>
+        )}
+
+        {paginatedStudents.map(student => {
+          const expiryDateObj = new Date(student.subscriptionExpiryDate);
+          const isExpiringSoon = (expiryDateObj.getTime() - new Date().getTime()) / (1000 * 3600 * 24) <= 7;
+
+          return (
+            <div key={student.id} className="glass-panel rounded-2xl border border-slate-800 p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <img
+                  src={student.avatarUrl}
+                  alt={student.fullName}
+                  className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="font-bold text-white text-sm truncate">
+                      {isArabic ? student.fullNameAr : student.fullName}
+                    </h3>
+                    {student.isAdmin && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-500/40">
+                        {isArabic ? 'أدمن' : 'ADMIN'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                      {student.studentId}
+                    </span>
+                    {getStatusBadge(student.status)}
+                    {getPlanBadge(student.subscriptionPlan)}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1.5 truncate" dir="ltr">
+                    {student.phoneNumber} • {student.email}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-slate-900 border border-slate-800 p-2">
+                  <div className="text-[10px] text-slate-400">{isArabic ? 'التقدم' : 'Progress'}</div>
+                  <div className="text-sm font-black text-brand-blue-electric">{student.overallProgress}%</div>
+                </div>
+                <div className="rounded-xl bg-slate-900 border border-slate-800 p-2">
+                  <div className="text-[10px] text-slate-400">{isArabic ? 'كتب' : 'Books'}</div>
+                  <div className="text-sm font-black text-white">{student.uploadedPdfs.length}</div>
+                </div>
+                <div className="rounded-xl bg-slate-900 border border-slate-800 p-2">
+                  <div className="text-[10px] text-slate-400">{isArabic ? 'أجهزة' : 'Devices'}</div>
+                  <div className="text-sm font-black text-white">{student.registeredDevices.length}</div>
+                </div>
+              </div>
+
+              <div className={`text-[11px] font-mono ${isExpiringSoon ? 'text-amber-400 font-bold' : 'text-slate-400'}`}>
+                {isArabic ? 'ينتهي: ' : 'Expires: '}
+                {expiryDateObj.toLocaleDateString()}
+              </div>
+
+              {/* Thumb-friendly action row */}
+              <div className="grid grid-cols-5 gap-1.5 pt-1">
+                <button
+                  onClick={() => onSelectStudent(student)}
+                  className="flex flex-col items-center gap-1 py-2 rounded-xl bg-slate-800 text-white text-[10px] font-bold active:scale-95 transition-transform"
+                >
+                  <Eye className="w-4 h-4" />
+                  {isArabic ? 'الملف' : 'Profile'}
+                </button>
+
+                <button
+                  onClick={() => onEditStudent(student)}
+                  className="flex flex-col items-center gap-1 py-2 rounded-xl bg-brand-blue/15 text-brand-blue-electric border border-brand-blue/30 text-[10px] font-bold active:scale-95 transition-transform"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  {isArabic ? 'تعديل' : 'Edit'}
+                </button>
+
+                {launchSupport && (
+                  <button
+                    onClick={() => launchSupport(student)}
+                    className="flex flex-col items-center gap-1 py-2 rounded-xl bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[10px] font-bold active:scale-95 transition-transform"
+                  >
+                    <Eye className="w-4 h-4" />
+                    {isArabic ? 'معاينة' : 'Inspect'}
+                  </button>
+                )}
+
+                {onToggleStudentAdmin && (
+                  <button
+                    onClick={() => onToggleStudentAdmin(student)}
+                    className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-bold active:scale-95 transition-transform ${
+                      student.isAdmin
+                        ? 'bg-red-950/50 text-red-300 border-red-500/30'
+                        : 'bg-purple-950/50 text-purple-300 border-purple-500/30'
+                    }`}
+                  >
+                    {student.isAdmin ? <ShieldMinus className="w-4 h-4" /> : <ShieldPlus className="w-4 h-4" />}
+                    {student.isAdmin ? (isArabic ? 'إلغاء أدمن' : 'Demote') : (isArabic ? 'ترقية' : 'Promote')}
+                  </button>
+                )}
+
+                {canDelete && onDeleteStudent && (
+                  <button
+                    onClick={() => setStudentToDelete(student)}
+                    className="flex flex-col items-center gap-1 py-2 rounded-xl bg-red-950/60 text-red-300 border border-red-500/40 text-[10px] font-bold active:scale-95 transition-transform"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {isArabic ? 'حذف' : 'Delete'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Mobile pagination */}
+        <div className="flex items-center justify-between gap-2 pt-2">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="px-3 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold disabled:opacity-40"
+          >
+            {isArabic ? 'السابق' : 'Prev'}
+          </button>
+          <span className="text-xs text-slate-400 font-mono">{currentPage} / {totalPages}</span>
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="px-3 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold disabled:opacity-40"
+          >
+            {isArabic ? 'التالي' : 'Next'}
+          </button>
+        </div>
+      </div>
+
+
+      {/* ================= DELETE STUDENT CONFIRMATION ================= */}
+      {studentToDelete && onDeleteStudent && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-red-500/40 p-5 sm:p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-red-950 text-red-400 border border-red-500/40 shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-white text-base">
+                  {isArabic ? 'تأكيد حذف الطالب' : 'Confirm student deletion'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  {isArabic
+                    ? `سيتم حذف حساب (${studentToDelete.fullNameAr || studentToDelete.fullName}) نهائياً مع الكتب والخطط المرتبطة به، ولا يمكن التراجع عن هذه الخطوة.`
+                    : `The account (${studentToDelete.fullName}) will be permanently deleted along with all books and plans. This cannot be undone.`}
+                </p>
+              </div>
+              <button
+                onClick={() => setStudentToDelete(null)}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-400 flex justify-between">
+              <span>{studentToDelete.studentId}</span>
+              <span dir="ltr">{studentToDelete.email}</span>
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row gap-2 pt-1">
+              <button
+                onClick={() => setStudentToDelete(null)}
+                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"
+              >
+                {isArabic ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                onClick={() => {
+                  onDeleteStudent(studentToDelete);
+                  setStudentToDelete(null);
+                }}
+                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg"
+              >
+                <Trash2 className="w-4 h-4" />
+                {isArabic ? 'حذف نهائي' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

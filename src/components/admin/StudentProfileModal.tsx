@@ -38,6 +38,8 @@ interface StudentProfileModalProps {
   onLaunchSupportMode: (student: Student) => void;
   onRevokeDevice: (studentId: string, deviceId: string) => void;
   onGeneratePasswordReset: (student: Student) => void;
+  onDeleteStudent?: (student: Student) => void;
+  onToggleStudentAdmin?: (student: Student) => void;
 }
 
 export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
@@ -48,10 +50,13 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   onEdit,
   onLaunchSupportMode,
   onRevokeDevice,
-  onGeneratePasswordReset
+  onGeneratePasswordReset,
+  onDeleteStudent,
+  onToggleStudentAdmin
 }) => {
   const [activeTab, setActiveTab] = useState<number>(1);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!isOpen) return null;
 
@@ -96,7 +101,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 md:p-6 animate-in fade-in duration-200">
-      <div className="glass-panel w-full max-w-6xl max-h-[92vh] rounded-3xl border border-slate-800 shadow-2xl flex flex-col overflow-hidden bg-slate-950/95">
+      <div className="glass-panel relative w-full max-w-6xl max-h-[92vh] rounded-3xl border border-slate-800 shadow-2xl flex flex-col overflow-hidden bg-slate-950/95">
         
         {/* Top Header */}
         <div className="p-4 sm:p-6 border-b border-slate-800 bg-slate-900/60 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
@@ -116,6 +121,11 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                 </span>
                 {getStatusBadge(student.status)}
                 {getPlanBadge(student.subscriptionPlan)}
+                {student.isAdmin && (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-950 text-purple-300 border border-purple-500/40">
+                    {isArabic ? 'أدمن' : 'ADMIN'}
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-4 mt-1.5 text-xs text-slate-400">
                 <span className="flex items-center gap-1">
@@ -160,6 +170,34 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               <Key className="w-4 h-4" />
               <span>{isArabic ? 'إعادة ضبط كلمة المرور' : 'Reset Password'}</span>
             </button>
+
+            {onToggleStudentAdmin && (
+              <button
+                onClick={() => onToggleStudentAdmin(student)}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  student.isAdmin
+                    ? 'bg-red-950/50 hover:bg-red-900/60 text-red-300 border-red-500/30'
+                    : 'bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border-emerald-500/30'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>
+                  {student.isAdmin
+                    ? (isArabic ? 'إلغاء صلاحية الأدمن' : 'Remove Admin Role')
+                    : (isArabic ? 'ترقية لأدمن' : 'Promote to Admin')}
+                </span>
+              </button>
+            )}
+
+            {onDeleteStudent && (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-red-950/60 hover:bg-red-900/70 text-red-300 border border-red-500/40 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isArabic ? 'حذف الطالب' : 'Delete Student'}</span>
+              </button>
+            )}
 
             <button
               onClick={onClose}
@@ -654,6 +692,40 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
           )}
 
         </div>
+
+        {/* Delete Confirmation Overlay */}
+        {confirmDelete && onDeleteStudent && (
+          <div className="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-red-500/40 p-5 space-y-4">
+              <div className="flex items-center gap-2 text-red-400">
+                <AlertTriangle className="w-6 h-6" />
+                <h4 className="font-bold text-white">{isArabic ? 'تأكيد الحذف النهائي' : 'Confirm permanent deletion'}</h4>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {isArabic
+                  ? `سيتم حذف (${student.fullNameAr || student.fullName}) نهائياً. العملية لا يمكن التراجع عنها وسيتم توثيقها في سجل التدقيق.`
+                  : `${student.fullName} will be permanently deleted. This action cannot be undone and will be recorded in the audit log.`}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold"
+                >
+                  {isArabic ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  onClick={() => {
+                    setConfirmDelete(false);
+                    onDeleteStudent(student);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold"
+                >
+                  {isArabic ? 'حذف نهائي' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal Footer */}
         <div className="p-4 border-t border-slate-800 bg-slate-900/40 flex items-center justify-between">

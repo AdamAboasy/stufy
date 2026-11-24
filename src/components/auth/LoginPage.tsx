@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Logo } from '../brand/Logo';
 import { WhatsAppButton } from '../whatsapp/WhatsAppButton';
-import { UserRole, GeneratedActivationCode } from '../../types';
+import { UserRole, GeneratedActivationCode, Gender } from '../../types';
+import { ACADEMIC_STAGES } from '../../data/academicStages';
 import { 
   Lock, 
   Mail, 
@@ -14,7 +15,12 @@ import {
   User,
   Sparkles,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  Phone,
+  GraduationCap,
+  Users,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 export interface LoginPageProps {
@@ -26,6 +32,9 @@ export interface LoginPageProps {
     email: string;
     password: string;
     activationCode: string;
+    stage?: string;
+    gender?: Gender;
+    phoneNumber?: string;
   }) => { success: boolean; error?: string };
   onGoToActivation: () => void;
   onToggleLanguage?: () => void;
@@ -47,6 +56,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [activationCode, setActivationCode] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [stage, setStage] = useState('');
+  const [gender, setGender] = useState<Gender | ''>('');
+  const [showPassword, setShowPassword] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -108,12 +121,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           return;
         }
 
+        if (!stage) {
+          setErrorMessage(isArabic ? 'يرجى اختيار المرحلة الدراسية.' : 'Please select your academic stage.');
+          return;
+        }
+
+        if (!gender) {
+          setErrorMessage(isArabic ? 'يرجى تحديد الجنس (ذكر / أنثى).' : 'Please select your gender.');
+          return;
+        }
+
+        const cleanPhone = phoneNumber.replace(/[\s-]/g, '');
+        if (!/^\+?\d{10,15}$/.test(cleanPhone)) {
+          setErrorMessage(
+            isArabic
+              ? 'يرجى إدخال رقم تليفون صحيح (مثال: 01012345678).'
+              : 'Please enter a valid phone number (e.g. 01012345678).'
+          );
+          return;
+        }
+
         // Call parent register handler
         const result = onRegisterStudent({
           fullName: fullName.trim(),
           email: cleanEmail,
           password,
-          activationCode: cleanCode
+          activationCode: cleanCode,
+          stage,
+          gender: gender as Gender,
+          phoneNumber: cleanPhone
         });
 
         if (!result.success) {
@@ -319,6 +355,85 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             )}
 
+            {/* Field: Academic Stage (Register Mode Only) */}
+            {role === 'STUDENT' && studentAuthMode === 'register' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {isArabic ? 'المرحلة الدراسية' : 'Academic Stage'}
+                </label>
+                <div className="relative">
+                  <select
+                    required
+                    value={stage}
+                    onChange={(e) => setStage(e.target.value)}
+                    className="w-full appearance-none px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
+                  >
+                    <option value="">{isArabic ? 'اختر مرحلتك الدراسية...' : 'Select your stage...'}</option>
+                    {ACADEMIC_STAGES.map(st => (
+                      <option key={st.id} value={st.id}>
+                        {isArabic ? st.labelAr : st.labelEn}
+                      </option>
+                    ))}
+                  </select>
+                  <GraduationCap className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5 pointer-events-none" />
+                </div>
+              </div>
+            )}
+
+            {/* Field: Gender (Register Mode Only) */}
+            {role === 'STUDENT' && studentAuthMode === 'register' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {isArabic ? 'الجنس' : 'Gender'}
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGender('male')}
+                    className={`py-2.5 rounded-xl text-xs font-bold border transition-colors ${
+                      gender === 'male'
+                        ? 'bg-brand-blue/20 text-brand-blue-electric border-brand-blue/50'
+                        : 'bg-slate-900/90 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    {isArabic ? '👦 ذكر' : '👦 Male'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGender('female')}
+                    className={`py-2.5 rounded-xl text-xs font-bold border transition-colors ${
+                      gender === 'female'
+                        ? 'bg-brand-purple/20 text-brand-purple-light border-brand-purple/50'
+                        : 'bg-slate-900/90 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    {isArabic ? '👧 أنثى' : '👧 Female'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Field: Phone (Register Mode Only) */}
+            {role === 'STUDENT' && studentAuthMode === 'register' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {isArabic ? 'رقم التليفون' : 'Phone Number'}
+                </label>
+                <div className="relative">
+                  <input
+                    type="tel"
+                    required
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="01012345678"
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10 font-mono"
+                    dir="ltr"
+                  />
+                  <Phone className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
+                </div>
+              </div>
+            )}
+
             {/* Field 2: Email */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -357,14 +472,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
               <div className="relative">
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 pr-10 rtl:pl-10 rtl:pr-10"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  className="absolute top-2.5 right-3 rtl:right-auto rtl:left-3 text-slate-400 hover:text-white"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
