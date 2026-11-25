@@ -18,7 +18,11 @@ interface AdminEditModalProps {
   isOpen: boolean;
   isArabic: boolean;
   onClose: () => void;
-  onSave: (updatedStudent: Student, generatedLogs: Omit<AuditLog, 'id' | 'timestamp'>[]) => void;
+  /** بيرجع نتيجة الحفظ — لو فشل نعرض الخطأ ونفضل في نفس النافذة */
+  onSave: (
+    updatedStudent: Student,
+    generatedLogs: Omit<AuditLog, 'id' | 'timestamp'>[]
+  ) => Promise<{ success: boolean; error?: string }> | { success: boolean; error?: string };
 }
 
 export const AdminEditModal: React.FC<AdminEditModalProps> = ({
@@ -108,7 +112,7 @@ export const AdminEditModal: React.FC<AdminEditModalProps> = ({
     setShowConfirmation(true);
   };
 
-  const handleConfirmSave = () => {
+  const handleConfirmSave = async () => {
     const changes = getChanges();
     const generatedLogs: Omit<AuditLog, 'id' | 'timestamp'>[] = changes.map(ch => ({
       adminId: 'ADMIN-SUPER-01',
@@ -136,7 +140,11 @@ export const AdminEditModal: React.FC<AdminEditModalProps> = ({
       notes: notes.trim()
     };
 
-    onSave(updatedStudent, generatedLogs);
+    const result = await onSave(updatedStudent, generatedLogs);
+    if (!result.success) {
+      setShowConfirmation(false);
+      return;
+    }
     setShowConfirmation(false);
     onClose();
   };

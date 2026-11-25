@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   User,
   Mail,
+  Lock,
   Home
 } from 'lucide-react';
 import { GeneratedActivationCode } from '../../types';
@@ -19,7 +20,14 @@ import { GeneratedActivationCode } from '../../types';
 interface ActivationCodePageProps {
   isArabic: boolean;
   activeCodes?: GeneratedActivationCode[];
-  onActivateSuccess?: (code: string, matchedPlan?: string, studentName?: string, studentEmail?: string) => void;
+  /** بيرجع نتيجة التفعيل — لو فشل بنعرض الرسالة جوه الصفحة */
+  onActivateSuccess?: (
+    code: string,
+    matchedPlan?: string,
+    studentName?: string,
+    studentEmail?: string,
+    studentPassword?: string
+  ) => Promise<{ success: boolean; error?: string }> | void;
   onBackToDashboard?: () => void;
   isLoggedIn?: boolean;
 }
@@ -34,6 +42,7 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
   const [code, setCode] = useState('');
   const [studentName, setStudentName] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
+  const [studentPassword, setStudentPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -55,9 +64,25 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
       return;
     }
 
+    // التسجيل محتاج اسم + إيميل + كلمة مرور (حساب دخول حقيقي)
+    if (!isLoggedIn) {
+      if (!studentName.trim()) {
+        setError(isArabic ? 'اكتب اسمك بالكامل.' : 'Please enter your full name.');
+        return;
+      }
+      if (!studentEmail.trim().includes('@')) {
+        setError(isArabic ? 'اكتب بريد إلكتروني صحيح.' : 'Please enter a valid email address.');
+        return;
+      }
+      if (studentPassword.length < 6) {
+        setError(isArabic ? 'كلمة المرور لازم ٦ أحرف على الأقل.' : 'Password must be at least 6 characters.');
+        return;
+      }
+    }
+
     setLoading(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setLoading(false);
 
       // Check against generated codes
@@ -80,9 +105,12 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
         );
         setRedirecting(true);
 
-        setTimeout(() => {
-          if (onActivateSuccess) {
-            onActivateSuccess(cleanCode, planName, studentName, studentEmail);
+        setTimeout(async () => {
+          const result = await onActivateSuccess?.(cleanCode, planName, studentName, studentEmail, studentPassword);
+          if (result && !result.success) {
+            setRedirecting(false);
+            setSuccess(null);
+            setError(result.error || (isArabic ? 'تعذّر إكمال التفعيل.' : 'Could not complete activation.'));
           }
         }, 1200);
         return;
@@ -97,9 +125,12 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
         );
         setRedirecting(true);
 
-        setTimeout(() => {
-          if (onActivateSuccess) {
-            onActivateSuccess(cleanCode, 'Pro', studentName, studentEmail);
+        setTimeout(async () => {
+          const result = await onActivateSuccess?.(cleanCode, 'Pro', studentName, studentEmail, studentPassword);
+          if (result && !result.success) {
+            setRedirecting(false);
+            setSuccess(null);
+            setError(result.error || (isArabic ? 'تعذّر إكمال التفعيل.' : 'Could not complete activation.'));
           }
         }, 1200);
       } else {
@@ -159,7 +190,7 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-2">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {isArabic ? 'اسمك بالكامل (اختياري)' : 'Full Name (Optional)'}
+                    {isArabic ? 'اسمك بالكامل' : 'Full Name'}
                   </label>
                   <div className="relative">
                     <input
@@ -175,7 +206,7 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {isArabic ? 'البريد الإلكتروني (اختياري)' : 'Email (Optional)'}
+                    {isArabic ? 'البريد الإلكتروني' : 'Email'}
                   </label>
                   <div className="relative">
                     <input
@@ -186,6 +217,23 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
                       className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs pl-9 rtl:pl-3 rtl:pr-9"
                     />
                     <Mail className="w-3.5 h-3.5 text-slate-400 absolute top-3 left-3 rtl:left-auto rtl:right-3" />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {isArabic ? 'كلمة مرور الحساب (٦ أحرف على الأقل)' : 'Account password (6+ characters)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="password"
+                      required
+                      value={studentPassword}
+                      onChange={(e) => setStudentPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs pl-9 rtl:pl-3 rtl:pr-9"
+                    />
+                    <Lock className="w-3.5 h-3.5 text-slate-400 absolute top-3 left-3 rtl:left-auto rtl:right-3" />
                   </div>
                 </div>
               </div>

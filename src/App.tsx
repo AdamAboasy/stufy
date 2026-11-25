@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan } from './types';
+import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan, LibraryBook } from './types';
 import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS, INITIAL_ACTIVATION_CODES } from './data/mockData';
 import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
@@ -14,8 +14,11 @@ import { StudentSupportMode } from './components/admin/StudentSupportMode';
 import { ActivationCodePage } from './components/student/ActivationCodePage';
 import { StudentDashboardView } from './components/student/StudentDashboardView';
 import { LoginPage } from './components/auth/LoginPage';
+import { BooksLibraryManager } from './components/admin/BooksLibraryManager';
 import {
   subscribeStudents,
+  subscribeStudentById,
+  getStudentById,
   fetchStudentsFromServer,
   findStudentByEmail,
   upsertStudent,
@@ -37,6 +40,28 @@ import {
 import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
 import { uploadBook, deleteBookFile, getBookFileUrl, resolveStorageBackend } from './lib/booksService';
 import { initAnalytics } from './lib/firebase';
+import {
+  subscribeLibrary,
+  addLibraryBook,
+  updateLibraryBook,
+  deleteLibraryBook,
+  incrementLibraryUse
+} from './lib/libraryService';
+import { ACADEMIC_STAGES } from './data/academicStages';
+import {
+  watchSession,
+  adminSignIn,
+  adminSignOut,
+  createFirstSuperAdmin,
+  superAdminExists,
+  sendAdminPasswordReset,
+  studentEnsureAccount,
+  studentSignIn,
+  linkStudentAccount,
+  setStudentAdminRole,
+  isAdminRole,
+  type AppSession
+} from './lib/authService';
 import { 
   Users, 
   FileCheck2, 
@@ -47,32 +72,29 @@ import {
   Home,
   UserX,
   Cloud,
-  CloudOff
+  CloudOff,
+  Library
 } from 'lucide-react';
 
 export const App: React.FC = () => {
   // Global App & Language State
   const [isArabic, setIsArabic] = useState<boolean>(true);
 
-  // Authentication State: Protected by default
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('ssp_admin_auth') === 'true';
-  });
-  const [adminEmail, setAdminEmail] = useState<string>(() => {
-    return localStorage.getItem('ssp_admin_email') || 'adam.sherif.aboasy@gmail.com';
-  });
-  const [currentRole, setCurrentRole] = useState<UserRole>(() => {
-    if (localStorage.getItem('ssp_admin_auth') === 'true') return 'SUPER_ADMIN';
-    return localStorage.getItem('ssp_role') === 'STUDENT_ADMIN' ? 'STUDENT_ADMIN' : 'STUDENT';
-  });
+  /* ---------- Authentication (Firebase Auth — no passwords in code) ---------- */
+  const [session, setSession] = useState<AppSession | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [hasAdminAccount, setHasAdminAccount] = useState<boolean | null>(null);
 
-  const isSuperAdmin = currentRole === 'SUPER_ADMIN';
-  const canSeeAdminPanel = isSuperAdmin || currentRole === 'STUDENT_ADMIN';
+  const isAuthenticated = isAdminRole(session?.role);
+  const adminEmail = session?.email || '';
+  const [currentRole, setCurrentRole] = useState<UserRole>('STUDENT');
+
+  const isSuperAdmin = session?.role === 'SUPER_ADMIN';
+  // لوحة الإدارة بتتفتح بالأدوار القادمة من السيرفر فقط (مش من localStorage)
+  const canSeeAdminPanel = isAdminRole(session?.role);
 
   // Active View Tab: Defaults to 'login' if not authenticated as admin
-  const [activeTab, setActiveTab] = useState<ViewTab>(() => {
-    return localStorage.getItem('ssp_admin_auth') === 'true' ? 'students' : 'login';
-  });
+  const [activeTab, setActiveTab] = useState<ViewTab>('login');
 
   /* ============================================================
      DATA LAYER — Firestore is the ONLY source of truth.
@@ -90,10 +112,20 @@ export const App: React.FC = () => {
   const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>([]);
   const [dataError, setDataError] = useState<string | null>(null);
   const [storageBackend, setStorageBackend] = useState<'storage' | 'firestore'>('firestore');
+  // مكتبة الكتب المركزية (بيرفعها الأدمن، وكل الطلاب بيختاروا منها)
+  const [libraryBooks, setLibraryBooks] = useState<LibraryBook[]>([]);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
 
-  // Real-time students from the shared database
+  // Real-time data from the shared database — للأدمن فقط
+  // (قواعد الأمان بتمنع الطالب من قراءة كل الطلاب؛ هو عنده اشتراك على مستنده)
   useEffect(() => {
     initAnalytics();
+
+    if (!isAdminRole(session?.role)) {
+      setStudents([]);
+      setStudentsLoaded(true);
+      return;
+    }
 
     const unsubscribeStudents = subscribeStudents(
       (list, meta) => {
@@ -125,7 +157,50 @@ export const App: React.FC = () => {
       unsubscribeAudit();
       unsubscribeCodes();
     };
+  }, [session?.uid, session?.role]);
+
+  // ---------- Firebase Auth session ----------
+  useEffect(() => {
+    const unsubscribe = watchSession(next => {
+      setSession(next);
+      setAuthReady(true);
+      if (next) {
+        setActiveTab(prev => (prev === 'login' ? 'students' : prev));
+      }
+    });
+    return () => unsubscribe();
   }, []);
+
+  // هل يوجد حساب إدارة؟ (لتحديد هل نعرض شاشة الإعداد الأول)
+  useEffect(() => {
+    let cancelled = false;
+    superAdminExists()
+      .then(exists => {
+        if (!cancelled) setHasAdminAccount(exists);
+      })
+      .catch(() => {
+        if (!cancelled) setHasAdminAccount(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // المكتبة المركزية — قراءة متاحة لأي مستخدم مسجّل (أدمن أو طالب)
+  useEffect(() => {
+    if (!session) {
+      setLibraryBooks([]);
+      return;
+    }
+    return subscribeLibrary(
+      setLibraryBooks,
+      error => {
+        const code = (error as { code?: string })?.code || String(error);
+        setLibraryError(code);
+        console.warn('[library] listener', error);
+      }
+    );
+  }, [session?.uid]);
 
   // اختيار وسيلة تخزين الكتب تلقائياً (Storage لو Blaze، وإلا Firestore)
   useEffect(() => {
@@ -134,32 +209,33 @@ export const App: React.FC = () => {
       .catch(() => setStorageBackend('firestore'));
   }, []);
 
-  // Restore the logged-in student from the shared database (not from a local copy)
+  // استرجاع جلسة الطالب: بعد ما Firebase Auth يرجّع المستخدم بنقرأ ملفه هو بس
   useEffect(() => {
-    if (currentStudent) return;
-    const savedId = localStorage.getItem('ssp_student_id');
-    if (!savedId) return;
-    findStudentByEmail(localStorage.getItem('ssp_student_email') || '')
-      .then(found => {
-        if (found) setCurrentStudent(found);
-        else getStudentByIdFallback(savedId);
-      })
-      .catch(() => getStudentByIdFallback(savedId));
+    if (!authReady || currentStudent) return;
+    if (isAdminRole(session?.role)) return;
 
-    function getStudentByIdFallback(id: string) {
-      const fromList = students.find(st => st.id === id || st.studentId === id);
-      if (fromList) {
-        setCurrentStudent(fromList);
-      } else {
-        localStorage.removeItem('ssp_student_id');
-      }
-    }
+    const studentDocId = session?.studentId || session?.uid || localStorage.getItem('ssp_student_id');
+    if (!studentDocId) return;
+
+    return subscribeStudentById(
+      studentDocId,
+      student => {
+        if (student) {
+          setCurrentStudent(student);
+          localStorage.setItem('ssp_student_id', student.id);
+        } else {
+          setCurrentStudent(null);
+          localStorage.removeItem('ssp_student_id');
+        }
+      },
+      error => console.warn('[students] own-document listener', error)
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [studentsLoaded]);
+  }, [authReady, session?.uid]);
 
-  // Keep the logged-in student in sync with the live list
+  // مزامنة ملف الطالب مع القائمة الحيّة — للأدمن بس (الطالب عنده اشتراك مباشر)
   useEffect(() => {
-    if (!currentStudent) return;
+    if (!currentStudent || !isAdminRole(session?.role)) return;
     const fresh = students.find(s => s.id === currentStudent.id);
     if (fresh && fresh !== currentStudent) setCurrentStudent(fresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -188,60 +264,214 @@ export const App: React.FC = () => {
   };
 
   // Login Success Handler (Guaranteed Super Admin Authorization & Student Access)
-  const handleLoginSuccess = (role: UserRole, userEmail: string) => {
-    if (role === 'SUPER_ADMIN') {
-      setIsAuthenticated(true);
-      setCurrentRole('SUPER_ADMIN');
-      setAdminEmail(userEmail);
-      localStorage.setItem('ssp_admin_auth', 'true');
-      localStorage.setItem('ssp_admin_email', userEmail);
-      setActiveTab('students');
-      showToast(
-        isArabic
-          ? 'تم تسجيل الدخول بنجاح! مرحباً بك يا أستاذ آدم في لوحة الإدارة العليا.'
-          : 'Authenticated successfully! Welcome back to the Super Admin Dashboard.'
+  /** دخول السوبر أدمن عبر Firebase Auth */
+  const handleAdminAuthSignIn = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const result = await adminSignIn(email, password, isArabic);
+    if (!result.ok || !result.session) {
+      return { success: false, error: result.error };
+    }
+    setSession(result.session);
+    setActiveTab('students');
+    setHasAdminAccount(true);
+    showToast(
+      isArabic
+        ? `تم تسجيل الدخول بنجاح! أهلاً ${result.session.displayName || 'بك'} في لوحة الإدارة.`
+        : `Signed in successfully. Welcome ${result.session.displayName || ''}!`
+    );
+    return { success: true };
+  };
+
+  /** إعداد أول سوبر أدمن (مرة واحدة) */
+  const handleSetupFirstAdmin = async (
+    email: string,
+    password: string,
+    name: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const result = await createFirstSuperAdmin(email, password, name, isArabic);
+    if (!result.ok || !result.session) {
+      return { success: false, error: result.error };
+    }
+    setSession(result.session);
+    setHasAdminAccount(true);
+    setActiveTab('students');
+    showToast(isArabic ? '🎉 تم إنشاء حساب السوبر أدمن بنجاح.' : '🎉 Super Admin account created.');
+    return { success: true };
+  };
+
+  /** إعادة تعيين كلمة مرور حساب الإدارة */
+  const handleAdminPasswordReset = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const result = await sendAdminPasswordReset(email, isArabic);
+    return { success: result.ok, error: result.error };
+  };
+
+  /* ============================================================
+     مكتبة الكتب المركزية (Admin) — رفع/تعديل/حذف
+     ============================================================ */
+  const handleUploadLibraryBook = async (
+    input: {
+      title: string;
+      subject: string;
+      stageId: string;
+      pageCount: number;
+      file: File;
+    },
+    onProgress?: (percent: number) => void
+  ): Promise<{ success: boolean; error?: string }> => {
+    const stage = ACADEMIC_STAGES.find(st => st.id === input.stageId);
+    const result = await addLibraryBook(
+      {
+        title: input.title,
+        subject: input.subject,
+        stageId: input.stageId,
+        stageLabelAr: stage?.labelAr,
+        stageLabelEn: stage?.labelEn,
+        pageCount: input.pageCount,
+        file: input.file,
+        createdBy: adminEmail || 'admin'
+      },
+      onProgress
+    );
+
+    if (!result.ok || !result.book) {
+      setLibraryError(result.error || 'upload-failed');
+      return {
+        success: false,
+        error:
+          result.error === 'upload-failed'
+            ? isArabic
+              ? 'تعذّر رفع الملف — راجع قواعد Firestore/Storage أو جرّب ملف أصغر.'
+              : 'Upload failed — check the Firestore/Storage rules or try a smaller file.'
+            : result.error
+      };
+    }
+
+    // اشتراك الـ snapshot هيعرضه، لكن بنضيفه فوراً لتحسين الاستجابة
+    setLibraryBooks(prev => [result.book as LibraryBook, ...prev.filter(b => b.id !== result.book!.id)]);
+    setLibraryError(null);
+
+    pushAuditLog({
+      id: `log-lib-add-${Date.now()}`,
+      adminId: session?.uid || 'ADMIN',
+      adminName: adminEmail || 'Admin',
+      targetStudentId: 'LIBRARY',
+      studentName: 'Central Library',
+      actionSource: 'ADMIN',
+      changedField: 'libraryBookAdded',
+      oldValue: 'None',
+      newValue: `${result.book.title} (${result.book.subject}, ${result.book.pageCount} pages)`,
+      reason: 'Admin added a book to the central library',
+      timestamp: new Date().toISOString()
+    });
+
+    return { success: true };
+  };
+
+  const handleUpdateLibraryBook = async (
+    id: string,
+    patch: { title: string; subject: string; stageId: string; pageCount: number }
+  ): Promise<boolean> => {
+    const stage = ACADEMIC_STAGES.find(st => st.id === patch.stageId);
+    const ok = await updateLibraryBook(id, {
+      title: patch.title,
+      subject: patch.subject,
+      stageId: patch.stageId,
+      stageLabelAr: stage?.labelAr,
+      stageLabelEn: stage?.labelEn,
+      pageCount: patch.pageCount
+    });
+    if (ok) {
+      setLibraryBooks(prev =>
+        prev.map(b =>
+          b.id === id
+            ? {
+                ...b,
+                title: patch.title,
+                subject: patch.subject,
+                stageId: patch.stageId,
+                stageLabelAr: stage?.labelAr,
+                stageLabelEn: stage?.labelEn,
+                pageCount: patch.pageCount
+              }
+            : b
+        )
       );
     }
+    return ok;
+  };
+
+  const handleDeleteLibraryBook = async (
+    book: LibraryBook
+  ): Promise<{ success: boolean; error?: string }> => {
+    const result = await deleteLibraryBook(book);
+    if (!result.ok) return { success: false, error: result.error };
+
+    setLibraryBooks(prev => prev.filter(b => b.id !== book.id));
+    pushAuditLog({
+      id: `log-lib-del-${Date.now()}`,
+      adminId: session?.uid || 'ADMIN',
+      adminName: adminEmail || 'Admin',
+      targetStudentId: 'LIBRARY',
+      studentName: 'Central Library',
+      actionSource: 'ADMIN',
+      changedField: 'libraryBookDeleted',
+      oldValue: book.title,
+      newValue: 'Removed from library',
+      reason: 'Admin permanently deleted a book from the central library',
+      timestamp: new Date().toISOString()
+    });
+    return { success: true };
   };
 
   /**
-   * تسجيل دخول الطالب: البحث في قاعدة البيانات المشتركة (مش من نسخة المتصفح)
-   * Student sign-in resolves the account from the shared Firestore database.
+   * تسجيل دخول الطالب: Firebase Auth (إيميل + كلمة سر) ثم قراءة مستند الطالب
+   * من قاعدة البيانات المشتركة. مفيش أي دخول بدون كلمة سر صحيحة.
    */
   const handleStudentSignIn = async (
-    email: string
+    email: string,
+    password: string
   ): Promise<{ success: boolean; error?: string }> => {
     const clean = email.trim().toLowerCase();
+
+    const authResult = await studentSignIn(clean, password, isArabic);
+    if (!authResult.ok) {
+      return { success: false, error: authResult.error };
+    }
+
+    // ملف الطالب معرّفه = uid بتاعه، فبنقرأه مباشرة (قواعد الأمان بتسمح له بذلك)
     let matched: Student | null = null;
-
-    try {
-      matched = await findStudentByEmail(clean);
-    } catch (error) {
-      return {
-        success: false,
-        error: isArabic
-          ? `تعذّر الوصول لقاعدة البيانات: ${(error as { code?: string })?.code || 'network'}. جرّب تاني بعد لحظات.`
-          : `Could not reach the database: ${(error as { code?: string })?.code || 'network'}. Please try again.`
-      };
+    const docId = authResult.session?.studentId || authResult.session?.uid;
+    if (docId) {
+      try {
+        matched = await getStudentById(docId);
+      } catch {
+        matched = null;
+      }
+    }
+    // لو الحساب أدمن طالب: نقدر نبحث بالإيميل كمان
+    if (!matched && isAdminRole(authResult.session?.role)) {
+      try {
+        matched = await findStudentByEmail(clean);
+      } catch {
+        matched = null;
+      }
     }
 
     if (!matched) {
-      // آخر محاولة: من القائمة الحيّة (لو الاشتراك اللحظي متاح)
-      matched = students.find(st => (st.email || '').toLowerCase() === clean) || null;
-    }
-
-    if (!matched) {
       return {
         success: false,
         error: isArabic
-          ? '❌ لا يوجد حساب طالب مسجل بهذا البريد. سجّل حساب جديد بكود التفعيل أولاً.'
-          : '❌ No student account found for this email. Please register with an activation code first.'
+          ? '❌ لا يوجد ملف طالب مرتبط بهذا البريد. تواصل مع الدعم لربط حسابك.'
+          : '❌ No student profile is linked to this email. Please contact support.'
       };
     }
 
-    const promoted = !!matched.isAdmin;
+    const promoted = !!matched.isAdmin || authResult.session?.role === 'STUDENT_ADMIN';
     setCurrentRole(promoted ? 'STUDENT_ADMIN' : 'STUDENT');
-    localStorage.setItem('ssp_role', promoted ? 'STUDENT_ADMIN' : 'STUDENT');
     setCurrentStudent(matched);
     localStorage.setItem('ssp_student_id', matched.id);
     localStorage.setItem('ssp_student_email', clean);
@@ -321,8 +551,18 @@ export const App: React.FC = () => {
       };
     }
 
+    // 3) حساب Firebase Auth حقيقي للطالب (كلمة السر مش بتتخزن في Firestore)
+    const account = await studentEnsureAccount(data.email, data.password, isArabic);
+    if (!account.ok || !account.uid) {
+      return {
+        success: false,
+        error: account.error || (isArabic ? '❌ تعذّر إنشاء حساب الدخول.' : '❌ Could not create the sign-in account.')
+      };
+    }
+
     const newStudentId = `STU-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newStudentInternalId = `s-${Date.now()}`;
+    // معرّف المستند = uid بتاع Auth ⇒ القواعد تقدر تتحقق إن الطالب بيعدّل ملفه هو
+    const newStudentInternalId = account.uid;
     const nowIso = new Date().toISOString();
     const expiryDate = new Date(Date.now() + durationMonths * 30 * 24 * 3600 * 1000).toISOString();
 
@@ -415,6 +655,9 @@ export const App: React.FC = () => {
 
     setStudents(prev => [newStudent, ...prev.filter(st => st.id !== newStudent.id)]);
 
+    // ربط حساب الدخول بالملف (staff/{uid} = STUDENT + studentId)
+    await linkStudentAccount(account.uid, data.email, newStudentInternalId);
+
     // Mark activation code as redeemed (shared DB — so it can't be reused on another device)
     await markCodeRedeemed(cleanCode, {
       id: newStudentInternalId,
@@ -456,8 +699,9 @@ export const App: React.FC = () => {
   };
 
   // Logout Handler (Locks the dashboard)
-  const handleLogout = () => {
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    await adminSignOut();
+    setSession(null);
     setCurrentRole('STUDENT');
     localStorage.removeItem('ssp_admin_auth');
     localStorage.removeItem('ssp_admin_email');
@@ -518,21 +762,24 @@ export const App: React.FC = () => {
   };
 
   // Student Redeemed Code Handler: Immediately transitions to Student Home Page
-  const handleStudentRedeemCode = (
+  const handleStudentRedeemCode = async (
     redeemedCodeString: string,
     matchedPlan?: string,
     studentName?: string,
-    studentEmail?: string
-  ) => {
+    studentEmail?: string,
+    studentPassword?: string
+  ): Promise<{ success: boolean; error?: string }> => {
     const cleanCode = redeemedCodeString.trim().toUpperCase();
     const nowIso = new Date().toISOString();
 
+    // 1) طالب مسجّل بالفعل: بيرقّي باقته الحالية
     if (currentStudent) {
+      const expiryIso = new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString();
       const updatedStudent: Student = {
         ...currentStudent,
         subscriptionPlan: (matchedPlan as SubscriptionPlan) || 'Pro',
         status: 'Active',
-        subscriptionExpiryDate: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
+        subscriptionExpiryDate: expiryIso,
         activationHistory: [
           {
             id: `act-${Date.now()}`,
@@ -540,7 +787,7 @@ export const App: React.FC = () => {
             plan: (matchedPlan as SubscriptionPlan) || 'Pro',
             durationMonths: 6,
             activatedAt: nowIso,
-            expiresAt: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
+            expiresAt: expiryIso,
             status: 'Active',
             paymentReference: 'VOUCHER-REDEEM',
             paymentMethod: 'Activation Code'
@@ -549,37 +796,73 @@ export const App: React.FC = () => {
         ]
       };
 
-      setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
-      setCurrentStudent(updatedStudent);
-      setActiveTab('student_dashboard');
-    } else {
-      void handleRegisterStudent({
-        fullName: studentName?.trim() || 'طالب جديد (مخطط الدراسة)',
-        email: studentEmail?.trim() || `student_${Date.now()}@example.com`,
-        password: 'password123',
-        activationCode: cleanCode
-      });
-    }
-
-    setActivationCodes(prev => prev.map(c => {
-      if (c.code.toUpperCase() === cleanCode) {
+      const saved = await upsertStudent(updatedStudent);
+      if (!saved.ok) {
         return {
-          ...c,
-          status: 'Redeemed',
-          redeemedAt: nowIso
+          success: false,
+          error: isArabic
+            ? `تعذّر حفظ التفعيل في قاعدة البيانات (${saved.error}).`
+            : `Could not save the activation (${saved.error}).`
         };
       }
-      return c;
-    }));
+      await markCodeRedeemed(cleanCode, {
+        id: updatedStudent.id,
+        studentId: updatedStudent.studentId,
+        fullName: updatedStudent.fullName
+      });
+      setStudents(prev => prev.map(s => (s.id === updatedStudent.id ? updatedStudent : s)));
+      setCurrentStudent(updatedStudent);
+      setActiveTab('student_dashboard');
+      return { success: true };
+    }
 
-    setActiveTab('student_dashboard');
+    // 2) طالب جديد: تسجيل كامل بحساب دخول حقيقي
+    if (!studentName?.trim() || !studentEmail?.trim() || !studentPassword) {
+      return {
+        success: false,
+        error: isArabic
+          ? 'لتفعيل كود جديد محتاج الاسم والبريد وكلمة المرور (أو سجّل من صفحة الدخول).'
+          : 'To redeem a new code you need your name, email and password (or register from the login page).'
+      };
+    }
+
+    const result = await handleRegisterStudent({
+      fullName: studentName.trim(),
+      email: studentEmail.trim(),
+      password: studentPassword,
+      activationCode: cleanCode
+    });
+    if (!result.success) return result;
+
+    setActivationCodes(prev =>
+      prev.map(c =>
+        c.code.toUpperCase() === cleanCode ? { ...c, status: 'Redeemed', redeemedAt: nowIso } : c
+      )
+    );
+    return { success: true };
   };
 
   // Admin Save Modifications with Immutable Audit Log Generation
-  const handleSaveStudentModifications = (
+  const handleSaveStudentModifications = async (
     updatedStudent: Student,
     newLogs: Omit<AuditLog, 'id' | 'timestamp'>[]
   ) => {
+    // 1) الحفظ في قاعدة البيانات المشتركة الأول (المصدر الوحيد)
+    const saved = await upsertStudent(updatedStudent);
+    if (!saved.ok) {
+      setDataError(
+        isArabic
+          ? `فشل حفظ تعديلات الطالب: ${saved.error}.`
+          : `Saving the student's edits failed: ${saved.error}.`
+      );
+      showToast(
+        isArabic
+          ? `❌ لم يتم حفظ التعديلات (${saved.error}) — مفيش أي حاجة اتغيرت.`
+          : `❌ Changes were not saved (${saved.error}) — nothing was modified.`
+      );
+      return { success: false, error: saved.error };
+    }
+
     setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
     if (selectedStudent && selectedStudent.id === updatedStudent.id) {
       setSelectedStudent(updatedStudent);
@@ -596,12 +879,15 @@ export const App: React.FC = () => {
     }));
 
     setAuditLogs(prev => [...finalizedLogs, ...prev]);
+    // 2) سجل التدقيق بيتحفظ على السيرفر كمان (إضافة فقط)
+    finalizedLogs.forEach(log => pushAuditLog(log));
 
     showToast(
       isArabic
         ? `تم تحديث بيانات الطالب وتوثيق ${newLogs.length} سجل في سجل التدقيق الأمني بنجاح!`
         : `Student updated and ${newLogs.length} event(s) committed to the immutable audit trail!`
     );
+    return { success: true };
   };
 
   // Revoke Device Handler
@@ -618,6 +904,7 @@ export const App: React.FC = () => {
     };
 
     setStudents(prev => prev.map(s => s.id === studentId ? updatedStudent : s));
+    syncStudentToCloud(updatedStudent);
     if (selectedStudent && selectedStudent.id === studentId) {
       setSelectedStudent(updatedStudent);
     }
@@ -795,9 +1082,19 @@ export const App: React.FC = () => {
   /* ============================================================
      PROMOTE / DEMOTE STUDENT TO ADMIN (Super Admin only)
      ============================================================ */
-  const handleToggleStudentAdmin = (student: Student) => {
+  const handleToggleStudentAdmin = async (student: Student) => {
     const promoting = !student.isAdmin;
     const updated: Student = { ...student, isAdmin: promoting };
+
+    // الدور على السيرفر (staff/{uid}) — القواعد بتعتمد عليه
+    const roleSynced = await setStudentAdminRole(student.email, student.id, promoting);
+    if (!roleSynced) {
+      showToast(
+        isArabic
+          ? '⚠️ تم تحديث الملف لكن تعذّر تحديث دور الحساب في staff — سجّل دخول تاني للطالب.'
+          : '⚠️ Profile updated but the account role in staff was not updated — the student must sign in again.'
+      );
+    }
 
     setStudents(prev => prev.map(s => (s.id === student.id ? updated : s)));
     syncStudentToCloud(updated);
@@ -838,52 +1135,71 @@ export const App: React.FC = () => {
   /* ============================================================
      STUDENT SELF-SERVICE SETTINGS (name / avatar / phone / stage)
      ============================================================ */
-  const handleUpdateStudentProfile = (updated: Student) => {
+  const handleUpdateStudentProfile = async (updated: Student) => {
+    // الحفظ على السيرفر الأول — لو فشل مانقولش للطالب إنه اتحفظ
+    const saved = await upsertStudent(updated);
+    if (!saved.ok) {
+      showToast(
+        isArabic
+          ? `⚠️ تعذّر حفظ التعديلات في قاعدة البيانات (${saved.error}).`
+          : `⚠️ Could not save your changes (${saved.error}).`
+      );
+      return;
+    }
     setStudents(prev => prev.map(s => (s.id === updated.id ? updated : s)));
     if (currentStudent && currentStudent.id === updated.id) {
       setCurrentStudent(updated);
     }
-    syncStudentToCloud(updated);
   };
 
-  const handleSaveGeneratedPlan = (plan: GeneratedPlan) => {
-    setStudents(prev =>
-      prev.map(s => {
-        if (!currentStudent || s.id !== currentStudent.id) return s;
+  const handleSaveGeneratedPlan = async (plan: GeneratedPlan, baseStudent?: Student) => {
+    const student = baseStudent || currentStudent;
+    if (!student) return;
 
-        const daysRemaining = Math.max(
-          0,
-          Math.round(
-            (new Date(`${plan.examDate}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) /
-              (24 * 3600 * 1000)
-          )
-        );
-
-        return {
-          ...s,
-          generatedPlan: plan,
-          studyPreferences: {
-            examDate: plan.examDate,
-            revisionRounds: plan.revisionRounds,
-            dailyMinutes: plan.dailyMinutes,
-            daysOff: s.studyPreferences?.daysOff || []
-          },
-          revisionPlanner: {
-            targetExamDate: plan.examDate,
-            daysRemaining,
-            rounds: plan.rounds,
-            weakPoints: s.revisionPlanner?.weakPoints || [],
-            nextMockExam: plan.sessions.find(s => s.kind === 'mock')?.date || ''
-          },
-          lastActivity: new Date().toISOString()
-        };
-      })
+    const daysRemaining = Math.max(
+      0,
+      Math.round(
+        (new Date(`${plan.examDate}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) /
+          (24 * 3600 * 1000)
+      )
     );
 
-    if (currentStudent) {
-      const planStudent = students.find(st => st.id === currentStudent.id);
-      if (planStudent) upsertStudent({ ...planStudent, generatedPlan: plan });
+    const updated: Student = {
+      ...student,
+      generatedPlan: plan,
+      studyPreferences: {
+        examDate: plan.examDate,
+        revisionRounds: plan.revisionRounds,
+        dailyMinutes: plan.dailyMinutes,
+        daysOff: student.studyPreferences?.daysOff || []
+      },
+      revisionPlanner: {
+        targetExamDate: plan.examDate,
+        daysRemaining,
+        rounds: plan.rounds,
+        weakPoints: student.revisionPlanner?.weakPoints || [],
+        nextMockExam: plan.sessions.find(s => s.kind === 'mock')?.date || ''
+      },
+      lastActivity: new Date().toISOString()
+    };
+
+    // الحفظ في قاعدة البيانات المشتركة (المصدر الوحيد) قبل تحديث الواجهة
+    const saved = await upsertStudent(updated);
+    if (!saved.ok) {
+      showToast(
+        isArabic
+          ? `⚠️ تعذّر حفظ الخطة في قاعدة البيانات (${saved.error}).`
+          : `⚠️ Could not save the plan to the database (${saved.error}).`
+      );
+      return;
     }
+
+    setCurrentStudent(updated);
+    setStudents(prev =>
+      prev.some(st => st.id === updated.id)
+        ? prev.map(st => (st.id === updated.id ? updated : st))
+        : prev
+    );
 
     showToast(
       isArabic
@@ -917,9 +1233,24 @@ export const App: React.FC = () => {
     );
   };
 
+  // BOOTSTRAP GATE: بنستنى Firebase Auth يرجّع الجلسة قبل ما نقرر نعرض الدخول
+  // (من غير كده الأدمن المسجّل كان هيشوف شاشة الدخول لكل تحميل)
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center justify-center gap-4">
+        <Logo variant="main" size="md" isArabic={isArabic} />
+        <div className="flex items-center gap-2 text-sm text-slate-400">
+          <span className="w-4 h-4 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
+          <span>{isArabic ? 'جاري التحقق من الجلسة...' : 'Verifying your session...'}</span>
+        </div>
+      </div>
+    );
+  }
+
   // ROUTE PROTECTION: Admin views require either the Super Admin session or a student promoted to admin
   const isProtectedAdminTab =
     activeTab === 'students' ||
+    activeTab === 'books_library' ||
     activeTab === 'code_generator' ||
     activeTab === 'audit_logs' ||
     activeTab === 'delete_students';
@@ -929,8 +1260,11 @@ export const App: React.FC = () => {
       <LoginPage
         isArabic={isArabic}
         activeCodes={activationCodes}
-        onLoginSuccess={handleLoginSuccess}
         onStudentSignIn={handleStudentSignIn}
+        onAdminAuthSignIn={handleAdminAuthSignIn}
+        hasAdminAccount={hasAdminAccount}
+        onSetupFirstAdmin={handleSetupFirstAdmin}
+        onAdminPasswordReset={handleAdminPasswordReset}
         onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
         onToggleLanguage={toggleLanguage}
@@ -944,8 +1278,11 @@ export const App: React.FC = () => {
       <LoginPage
         isArabic={isArabic}
         activeCodes={activationCodes}
-        onLoginSuccess={handleLoginSuccess}
         onStudentSignIn={handleStudentSignIn}
+        onAdminAuthSignIn={handleAdminAuthSignIn}
+        hasAdminAccount={hasAdminAccount}
+        onSetupFirstAdmin={handleSetupFirstAdmin}
+        onAdminPasswordReset={handleAdminPasswordReset}
         onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
         onToggleLanguage={toggleLanguage}
@@ -985,8 +1322,11 @@ export const App: React.FC = () => {
         <LoginPage
           isArabic={isArabic}
           activeCodes={activationCodes}
-          onLoginSuccess={handleLoginSuccess}
           onStudentSignIn={handleStudentSignIn}
+          onAdminAuthSignIn={handleAdminAuthSignIn}
+          hasAdminAccount={hasAdminAccount}
+          onSetupFirstAdmin={handleSetupFirstAdmin}
+          onAdminPasswordReset={handleAdminPasswordReset}
           onRegisterStudent={handleRegisterStudent}
           onGoToActivation={() => setActiveTab('activation_page')}
           onToggleLanguage={toggleLanguage}
@@ -1006,7 +1346,8 @@ export const App: React.FC = () => {
             setActiveTab('login');
           }
         }}
-        onLogout={() => {
+        onLogout={async () => {
+          if (!isAuthenticated) await adminSignOut();
           setCurrentStudent(null);
           setCurrentRole('STUDENT');
           localStorage.removeItem('ssp_student_id');
@@ -1023,6 +1364,8 @@ export const App: React.FC = () => {
         onDeleteBookFile={deleteBookFile}
         onOpenBookFile={getBookFileUrl}
         bookStorageBackend={storageBackend}
+        libraryBooks={libraryBooks}
+        onLibraryBookUsed={incrementLibraryUse}
       />
     );
   }
@@ -1035,6 +1378,11 @@ export const App: React.FC = () => {
       key: 'students',
       label: isArabic ? 'الطلاب' : 'Students',
       icon: <Users className="w-5 h-5" />
+    },
+    {
+      key: 'books_library',
+      label: isArabic ? 'المكتبة' : 'Library',
+      icon: <Library className="w-5 h-5" />
     },
     {
       key: 'code_generator',
@@ -1253,6 +1601,29 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'books_library' && (
+          <div className="space-y-3">
+            {libraryError && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-3 text-[11px] text-amber-200">
+                {isArabic ? 'تعذّر تحميل المكتبة: ' : 'Could not load the library: '}
+                <span className="font-mono">{libraryError}</span>
+                {' — '}
+                {isArabic ? 'راجع قواعد Firestore (مجموعة libraryBooks).' : 'check the Firestore rules (libraryBooks).'}
+              </div>
+            )}
+            <BooksLibraryManager
+              isArabic={isArabic}
+              books={libraryBooks}
+              isSuperAdmin={isSuperAdmin}
+              storageBackend={storageBackend}
+              onUploadBook={handleUploadLibraryBook}
+              onUpdateBook={handleUpdateLibraryBook}
+              onDeleteBook={handleDeleteLibraryBook}
+              onOpenBook={getBookFileUrl}
+            />
+          </div>
+        )}
+
         {activeTab === 'code_generator' && (
           <ActivationCodeGenerator
             isArabic={isArabic}
@@ -1286,7 +1657,7 @@ export const App: React.FC = () => {
 
       {/* Mobile Bottom Navigation (app-like, thumb friendly) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]">
-        <div className={`grid gap-1 ${isSuperAdmin ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        <div className={`grid gap-1 ${isSuperAdmin ? 'grid-cols-5' : 'grid-cols-4'}`}>
           {navItems.map(item => (
             <button
               key={item.key}

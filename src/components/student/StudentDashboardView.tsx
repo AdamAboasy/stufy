@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BookPdf, GeneratedPlan, Student, StudySession } from '../../types';
+import { BookPdf, GeneratedPlan, LibraryBook, Student, StudySession } from '../../types';
 import { Logo } from '../brand/Logo';
 import { BookPlanBuilder } from './BookPlanBuilder';
 import { StudentSettings } from './StudentSettings';
@@ -45,7 +45,8 @@ interface StudentDashboardViewProps {
   onLogout: () => void;
   onToggleLanguage?: () => void;
   onUpdateStudent?: (updated: Student) => void;
-  onSavePlan?: (plan: GeneratedPlan) => void;
+  /** baseStudent: أحدث نسخة من الملف (لو فيه تعديل لسه مش ظاهر في الـ state) */
+  onSavePlan?: (plan: GeneratedPlan, baseStudent?: Student) => void;
   /** رفع ملف الكتاب على Firebase Storage */
   onUploadBookFile?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
   /** حذف ملف كتاب من التخزين */
@@ -54,6 +55,10 @@ interface StudentDashboardViewProps {
   onOpenBookFile?: (storagePath?: string) => Promise<string | null>;
   /** الوسيلة المستخدمة لتخزين الكتب */
   bookStorageBackend?: 'storage' | 'firestore';
+  /** مكتبة الكتب المركزية — الطالب يختار منها بدل ما يرفع */
+  libraryBooks?: LibraryBook[];
+  /** بيتنادى لما الطالب يبني خطة من كتاب في المكتبة (عدّاد استخدام) */
+  onLibraryBookUsed?: (book: LibraryBook) => void;
 }
 
 type SubTab = 'home' | 'plan' | 'books' | 'exam' | 'settings' | 'devices';
@@ -76,7 +81,9 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   onUploadBookFile,
   onDeleteBookFile,
   onOpenBookFile,
-  bookStorageBackend = 'firestore'
+  bookStorageBackend = 'firestore',
+  libraryBooks = [],
+  onLibraryBookUsed
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('home');
   const [showBuilder, setShowBuilder] = useState(false);
@@ -126,6 +133,9 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
 
   const handleCreatePlan = (book: BookPdf, generated: GeneratedPlan) => {
     if (!onUpdateStudent || !onSavePlan) return;
+    // كتاب من المكتبة المركزية؟ نبلّغ الأب يزوّد عدّاد الاستخدام
+    const fromLibrary = libraryBooks.find(b => b.storagePath && b.storagePath === book.storagePath);
+    if (fromLibrary) onLibraryBookUsed?.(fromLibrary);
     // 1) register the uploaded book on the student record
     const withBook: Student = {
       ...activeStudent,
@@ -148,8 +158,8 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           ]
     };
     onUpdateStudent(withBook);
-    // 2) build the schedule from the book
-    onSavePlan(generated);
+    // 2) build the schedule from the book (بنمرّر الملف المحدّث عشان الكتاب يتحفظ معاه)
+    onSavePlan(generated, withBook);
     setShowBuilder(false);
     setActiveSubTab('plan');
     flash(isArabic ? 'تم بناء خطة المذاكرة من كتابك!' : 'Your study plan was built from your book!');
@@ -1004,6 +1014,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           onSubmit={handleCreatePlan}
           onUpload={onUploadBookFile}
           storageBackend={bookStorageBackend}
+          libraryBooks={libraryBooks}
         />
       )}
 

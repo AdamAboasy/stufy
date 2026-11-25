@@ -26,9 +26,16 @@ import {
 export interface LoginPageProps {
   isArabic: boolean;
   activeCodes?: GeneratedActivationCode[];
-  onLoginSuccess: (role: UserRole, userEmail: string) => void;
   /** تسجيل دخول الطالب من قاعدة البيانات المشتركة */
-  onStudentSignIn?: (email: string) => Promise<{ success: boolean; error?: string }>;
+  onStudentSignIn?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  /** دخول سوبر أدمن عبر Firebase Auth */
+  onAdminAuthSignIn?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  /** هل يوجد حساب إدارة؟ (لتحديد شاشة الإعداد الأول) */
+  hasAdminAccount?: boolean | null;
+  /** إنشاء أول حساب سوبر أدمن */
+  onSetupFirstAdmin?: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  /** إعادة تعيين كلمة مرور حساب الإدارة */
+  onAdminPasswordReset?: (email: string) => Promise<{ success: boolean; error?: string }>;
   onRegisterStudent: (data: {
     fullName: string;
     email: string;
@@ -45,8 +52,11 @@ export interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({
   isArabic,
   activeCodes = [],
-  onLoginSuccess,
   onStudentSignIn,
+  onAdminAuthSignIn,
+  hasAdminAccount = null,
+  onSetupFirstAdmin,
+  onAdminPasswordReset,
   onRegisterStudent,
   onGoToActivation,
   onToggleLanguage
@@ -73,9 +83,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
 
-  // Exact Authorized Super Admin Credentials
-  const SUPER_ADMIN_EMAIL = 'adam.sherif.aboasy@gmail.com';
-  const SUPER_ADMIN_PASSWORD = 'AdAm@27022010';
+  // إعداد أول حساب إدارة (بيظهر بس لو مفيش أي أدمن)
+  const [setupMode, setSetupMode] = useState(false);
+  const [setupName, setSetupName] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,16 +98,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setLoading(false);
       const cleanEmail = email.trim().toLowerCase();
 
-      // CASE 1: SUPER ADMIN LOGIN
+      // CASE 1: ADMIN LOGIN (Firebase Auth — مفيش كلمة سر في الكود)
       if (role === 'SUPER_ADMIN') {
-        if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase() && password === SUPER_ADMIN_PASSWORD) {
-          onLoginSuccess('SUPER_ADMIN', cleanEmail);
-        } else {
+        if (!cleanEmail.includes('@') || password.length < 6) {
           setErrorMessage(
-            isArabic 
-              ? '❌ بيانات الدخول غير صحيحة! هذا القسم مخصص للمشرف العام فقط ولا يمكن الدخول إلا بالحساب المعتمد.' 
-              : '❌ Invalid credentials! Access to the Super Admin Dashboard is strictly restricted to the authorized administrator.'
+            isArabic ? 'أدخل بريدك الإلكتروني وكلمة المرور (٦ أحرف على الأقل).' : 'Enter your email and password (6+ characters).'
           );
+          return;
+        }
+
+        // إعداد أول حساب إدارة
+        if (setupMode && onSetupFirstAdmin) {
+          if (!setupName.trim()) {
+            setErrorMessage(isArabic ? 'اكتب اسمك.' : 'Please enter your name.');
+            return;
+          }
+          if (password !== confirmPassword) {
+            setErrorMessage(isArabic ? 'كلمتا المرور غير متطابقتين.' : 'Passwords do not match.');
+            return;
+          }
+          const result = await onSetupFirstAdmin(cleanEmail, password, setupName.trim());
+          if (!result.success) setErrorMessage(result.error || 'Setup failed.');
+          else setSuccessMessage(isArabic ? '✅ تم إنشاء حساب السوبر أدمن.' : '✅ Super Admin account created.');
+          return;
+        }
+
+        if (!onAdminAuthSignIn) {
+          setErrorMessage(
+            isArabic ? 'خدمة المصادقة غير متاحة حالياً.' : 'Authentication service is unavailable.'
+          );
+          return;
+        }
+
+        const result = await onAdminAuthSignIn(cleanEmail, password);
+        if (!result.success) {
+          setErrorMessage(result.error || (isArabic ? 'بيانات الدخول غير صحيحة.' : 'Invalid credentials.'));
         }
         return;
       }
@@ -169,9 +205,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       // CASE 3: STUDENT PORTAL - SIGN IN
       if (studentAuthMode === 'signin') {
-        if (cleanEmail && password.length >= 4) {
+        if (cleanEmail && password.length >= 6) {
           if (onStudentSignIn) {
-            const result = await onStudentSignIn(cleanEmail);
+            const result = await onStudentSignIn(cleanEmail, password);
             if (!result.success) {
               setErrorMessage(result.error || (isArabic ? 'تعذّر تسجيل الدخول.' : 'Sign in failed.'));
             } else {
@@ -179,22 +215,27 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 isArabic ? '✅ تم تسجيل الدخول بنجاح، جاري فتح صفحتك...' : '✅ Signed in successfully, opening your page...'
               );
             }
-          } else {
-            onLoginSuccess('STUDENT', cleanEmail);
           }
         } else {
           setErrorMessage(
             isArabic
-              ? 'يرجى إدخال البريد الإلكتروني وكلمة المرور المسجلة الخاصة بحساب الطالب.'
-              : 'Please enter your registered student email and password.'
+              ? 'يرجى إدخال البريد الإلكتروني وكلمة المرور المسجلة (٦ أحرف على الأقل).'
+              : 'Please enter your registered student email and password (6+ characters).'
           );
         }
       }
     }, 450);
   };
 
-  const handleForgotSubmit = (e: React.FormEvent) => {
+  const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (onAdminPasswordReset) {
+      const result = await onAdminPasswordReset(forgotEmail);
+      if (!result.success) {
+        setErrorMessage(result.error || (isArabic ? 'تعذّر إرسال البريد.' : 'Could not send the email.'));
+        return;
+      }
+    }
     setForgotSent(true);
     setTimeout(() => {
       setForgotSent(false);
@@ -266,8 +307,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               type="button"
               onClick={() => {
                 setRole('SUPER_ADMIN');
-                setEmail('adam.sherif.aboasy@gmail.com');
+                setEmail('');
                 setPassword('');
+                setConfirmPassword('');
                 setErrorMessage(null);
               }}
               className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
@@ -320,13 +362,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
           {/* Security Alert Notice for Super Admin Role */}
           {role === 'SUPER_ADMIN' && (
-            <div className="mb-4 p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 text-[11px] text-purple-200 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-brand-purple-light shrink-0" />
-              <span>
-                {isArabic 
-                  ? 'منطقة محمية أمنياً: تتطلب الاعتماد الرسمي للمشرف العام فقط.' 
-                  : 'Protected Area: Restricted to the authorized Super Admin account.'}
+            <div className="mb-4 p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 text-[11px] text-purple-200 flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 text-brand-purple-light shrink-0 mt-0.5" />
+              <span className="leading-relaxed">
+                {isArabic
+                  ? 'منطقة محمية: الدخول بحساب Firebase Auth آمن (كلمة المرور مشفّرة ولا تُخزَّن في الكود).'
+                  : 'Protected area: sign-in uses Firebase Auth (passwords are hashed, never stored in code).'}
               </span>
+            </div>
+          )}
+
+          {/* First-run setup: يظهر فقط لو مفيش أي حساب إدارة */}
+          {role === 'SUPER_ADMIN' && hasAdminAccount === false && (
+            <div className="mb-4 p-3 rounded-2xl bg-emerald-950/50 border border-emerald-500/40 text-[11px] text-emerald-200 space-y-2">
+              <div className="font-bold flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4" />
+                {isArabic ? 'إعداد أول حساب سوبر أدمن' : 'First Super Admin setup'}
+              </div>
+              <p className="leading-relaxed">
+                {isArabic
+                  ? 'مفيش أي حساب إدارة على قاعدة البيانات بعد. املأ البيانات واضغط «إنشاء حساب السوبر أدمن» — الخطوة دي متاحة مرة واحدة فقط.'
+                  : 'No admin account exists yet. Fill the form and press “Create Super Admin” — available once only.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setSetupMode(v => !v)}
+                className={`w-full py-2 rounded-xl text-[11px] font-bold border transition-colors ${
+                  setupMode
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                    : 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
+                }`}
+              >
+                {setupMode
+                  ? (isArabic ? 'إلغاء وضع الإعداد' : 'Cancel setup mode')
+                  : (isArabic ? 'إنشاء أول حساب سوبر أدمن' : 'Create the first Super Admin')}
+              </button>
             </div>
           )}
 
@@ -448,6 +518,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             )}
 
+            {/* Setup: admin display name */}
+            {role === 'SUPER_ADMIN' && setupMode && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {isArabic ? 'اسم المسؤول' : 'Admin name'}
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    value={setupName}
+                    onChange={(e) => setSetupName(e.target.value)}
+                    placeholder={isArabic ? 'مثال: آدم شريف' : 'e.g. Adam Sherif'}
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
+                  />
+                  <User className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
+                </div>
+              </div>
+            )}
+
             {/* Field 2: Email */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -505,6 +595,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
+            {/* Setup: confirm password */}
+            {role === 'SUPER_ADMIN' && setupMode && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {isArabic ? 'تأكيد كلمة المرور' : 'Confirm password'}
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
+                  />
+                  <Lock className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
+                </div>
+              </div>
+            )}
+
             {/* Field 4: Activation Code (Student Register Mode Only) */}
             {role === 'STUDENT' && studentAuthMode === 'register' && (
               <div className="p-3 rounded-2xl bg-brand-blue/10 border border-brand-blue/30 space-y-2">
@@ -551,7 +661,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               ) : role === 'SUPER_ADMIN' ? (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>{isArabic ? 'دخول لوحة المشرف العام' : 'Sign In as Super Admin'}</span>
+                  <span>
+                    {setupMode
+                      ? (isArabic ? 'إنشاء حساب السوبر أدمن' : 'Create Super Admin account')
+                      : (isArabic ? 'دخول لوحة المشرف العام' : 'Sign In as Super Admin')}
+                  </span>
                 </>
               ) : studentAuthMode === 'register' ? (
                 <>

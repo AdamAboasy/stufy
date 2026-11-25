@@ -194,6 +194,8 @@ export interface ActivationHistoryItem {
 export interface Student {
   id: string;
   studentId: string; // e.g. "STU-2026-8941"
+  /** uid بتاع Firebase Auth لصاحب المستند (بتتحقق منه قواعد الأمان) */
+  ownerUid?: string;
   fullName: string;
   fullNameAr: string;
   email: string;
@@ -222,6 +224,32 @@ export interface Student {
   generatedPlan?: GeneratedPlan | null;
   overallProgress: number; // 0-100
   notes?: string;
+}
+
+/**
+ * كتاب في مكتبة الكتب المركزية (بيرفعها الأدمن مرة واحدة وكل الطلاب يختاروا منها)
+ * Central book library entry — uploaded once by an admin, selectable by students.
+ */
+export interface LibraryBook {
+  id: string;
+  title: string;
+  subject: string;
+  /** المرحلة الدراسية (معرّف من ACADEMIC_STAGES) — فاضي = متاح لكل المراحل */
+  stageId?: string;
+  stageLabelAr?: string;
+  stageLabelEn?: string;
+  originalFilename: string;
+  fileSizeMb: number;
+  pageCount: number;
+  createdAt: string;
+  createdBy: string;
+  /** مسار التخزين (Storage أو firestore:{id}) — بيُستخدم للفتح والحذف */
+  storagePath: string;
+  /** رابط مباشر لو الملف على Storage */
+  fileUrl?: string;
+  /** إحصائيات استخدام بسيطة */
+  useCount?: number;
+  isArchived?: boolean;
 }
 
 export interface AuditLog {
@@ -256,6 +284,7 @@ export interface GeneratedActivationCode {
 
 export type ViewTab =
   | 'students'
+  | 'books_library'
   | 'delete_students'
   | 'code_generator'
   | 'audit_logs'
