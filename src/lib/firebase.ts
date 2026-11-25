@@ -74,6 +74,7 @@ export const COLLECTIONS = {
   auditLogs: 'auditLogs',
   activationCodes: 'activationCodes',
   bookFiles: 'bookFiles',
+  library: 'libraryBooks',
   staff: 'staff',
   meta: 'appMeta'
 } as const;

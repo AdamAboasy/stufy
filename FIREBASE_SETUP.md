@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | **Firestore** | Build → Firestore Database | *Create database* → **Production mode** → اختار أقرب Region |
 | **Authentication** | Build → Authentication | **Get started** → Sign-in method → **Email/Password** → **Enable** → Save |
-| **Storage** | Build → Storage | **اختياري** — محتاج خطة Blaze (فيزا). التطبيق بيشتغل بدونه (شوف القسم 9) |
+| **Storage** | Build → Storage | **اختياري** — محتاج خطة Blaze (فيزا). التطبيق بيشتغل بدونه (شوف القسم 10) |
 | **Analytics** | (مفعّل تلقائياً) | لا يحتاج خطوات |
 
 > ⚠️ من غير خطوة **Authentication → Email/Password → Enable** هتلاقي رسالة
@@ -69,6 +69,7 @@ firebase deploy --only firestore:rules,storage
 | `auditLogs` | سجل التدقيق | — | أدمن فقط | إضافة فقط (append-only) |
 | `activationCodes/{CODE}` | أكواد التفعيل | `status` | `get` لكود واحد / قائمة للأدمن | إنشاء/إلغاء للأدمن + تعليم Redeemed للطالب |
 | `bookFiles/{id}/chunks/{i}` | بديل Storage | `ownerUid` | صاحب الملف + الأدمن | صاحب الملف + الأدمن |
+| `libraryBooks/{id}` | مكتبة الكتب المركزية | `createdBy`, `storagePath` | كل مستخدم مسجّل | الأدمن فقط |
 | `appMeta/bootstrap` | هل التهيئة انتهت | — | الجميع | السوبر أدمن |
 
 **الأدوار:** `SUPER_ADMIN` (كل شيء) • `STUDENT_ADMIN` (لوحة الإدارة بدون حذف/أكواد حساسة) • `STUDENT` (ملفه بس).
@@ -85,7 +86,7 @@ firebase deploy --only firestore:rules,storage
 | `auth/invalid-credential` | إيميل أو كلمة سر غلط | جرّب «نسيت كلمة المرور» → بيبعت رابط رسمي من Firebase |
 | `unavailable` | شبكة/بروكسي | جرّب شبكة تانية |
 | التسجيل ناجح لكن مش ظاهر عند الأدمن | الأدمن فاتح نسخة قديمة | Hard refresh بعد نشر القواعد |
-| `unauthorized` في Storage | Storage rules أو خطة Blaze | خطوة 2 + القسم 9 |
+| `unauthorized` في Storage | Storage rules أو خطة Blaze | خطوة 2 + القسم 10 |
 
 ---
 
@@ -97,7 +98,8 @@ firebase deploy --only firestore:rules,storage
 حذف الطالب (الأدمن)  ──► حذف المستند + ملفات كتبه (Storage/Firestore) ──► يختفي من كل الأجهزة
 أكواد التفعيل        ──► Firestore: activationCodes/{CODE} ──► الكود يشتغل على أي جهاز مرة واحدة
 سجل التدقيق          ──► auditLogs (إضافة فقط، قراءة للأدمن)
-كتب الـ PDF          ──► Storage: books/{uid}/… أو بديل Firestore (القسم 9)
+كتب الـ PDF          ──► Storage: books/{uid}/… أو بديل Firestore (القسم 10)
+مكتبة الكتب          ──► libraryBooks/{id} (الأدمن يرفع مرة) ──► كل الطلاب يختاروا منها
 ```
 
 - **مفيش بيانات تجريبية** بتتحمّل تلقائياً. أي طالب تشوفه هو طالب حقيقي مسجّل.
@@ -115,7 +117,30 @@ firebase deploy --only firestore:rules,storage
 
 ---
 
-## 8) الإعدادات في الكود
+## 8) مكتبة الكتب المركزية (الكتب جاهزة مرفوعة)
+
+بدل ما كل طالب يرفع كتابه من موبايله، الأدمن بيرفع الكتاب **مرة واحدة** في المكتبة:
+
+1. سجّل دخول كسوبر أدمن → تاب **«المكتبة»** في اللوحة.
+2. **«إضافة كتاب»** → اختار PDF + اسم الكتاب + المادة + المرحلة الدراسية + عدد الصفحات.
+   - الملف بيتخزن على Storage لو متاح، وإلا على Firestore chunks تلقائياً (القسم 9).
+3. الطالب بعد كده، وقت **بناء الخطة**، بيلاقي تبويب **«من مكتبة الكتب»** كاختيار افتراضي:
+   - بيبحث بالاسم/المادة، والكتب بتاعة مرحلته بتيجي الأول.
+   - بيختار الكتاب ويختار يوم الامتحان وعدد المراجعات → الخطة بتتبني **بدون أي رفع**.
+   - لسه فيه خيار «أرفع كتابي» لو الكتاب مش موجود في المكتبة.
+4. **حذف كتاب** من المكتبة: بيتشال هو وملفه نهائياً، والخطط اللي اتبنت منه عند الطلاب بتفضل شغالة.
+
+| العنصر | المكان |
+| --- | --- |
+| بيانات الكتب | `libraryBooks/{id}` |
+| الملف (Storage) | `books/library/{fileName}` |
+| الملف (بديل Firestore) | `bookFiles/{lib-…}` بـ `ownerUid = 'library'` |
+
+> المكتبة مقروءة لأي مستخدم مسجّل، والكتابة **للأدمن فقط** — القواعد في `firestore.rules` و `storage.rules`.
+
+---
+
+## 9) الإعدادات في الكود
 
 `src/lib/firebase.ts` بيقرأ من `VITE_FIREBASE_*` مع fallback على إعدادات المشروع.
 لو عايز تغيّر المشروع: اعمل `.env.local` (شوف `.env.example`) وحط المفاتيح الجديدة.
@@ -125,7 +150,7 @@ firebase deploy --only firestore:rules,storage
 
 ---
 
-## 9) تخزين الكتب بدون Blaze (الخطة المجانية) 💡
+## 10) تخزين الكتب بدون Blaze (الخطة المجانية) 💡
 
 رسالة `Storage requires a billing account (Blaze)` معناها إن Firebase Storage محتاج ترقية
 الخطة. **التطبيق مش بيتوقف** — فيه بديل مجاني مدمج:

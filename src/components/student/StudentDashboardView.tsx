@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BookPdf, GeneratedPlan, Student, StudySession } from '../../types';
+import { BookPdf, GeneratedPlan, LibraryBook, Student, StudySession } from '../../types';
 import { Logo } from '../brand/Logo';
 import { BookPlanBuilder } from './BookPlanBuilder';
 import { StudentSettings } from './StudentSettings';
@@ -55,6 +55,10 @@ interface StudentDashboardViewProps {
   onOpenBookFile?: (storagePath?: string) => Promise<string | null>;
   /** الوسيلة المستخدمة لتخزين الكتب */
   bookStorageBackend?: 'storage' | 'firestore';
+  /** مكتبة الكتب المركزية — الطالب يختار منها بدل ما يرفع */
+  libraryBooks?: LibraryBook[];
+  /** بيتنادى لما الطالب يبني خطة من كتاب في المكتبة (عدّاد استخدام) */
+  onLibraryBookUsed?: (book: LibraryBook) => void;
 }
 
 type SubTab = 'home' | 'plan' | 'books' | 'exam' | 'settings' | 'devices';
@@ -77,7 +81,9 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   onUploadBookFile,
   onDeleteBookFile,
   onOpenBookFile,
-  bookStorageBackend = 'firestore'
+  bookStorageBackend = 'firestore',
+  libraryBooks = [],
+  onLibraryBookUsed
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('home');
   const [showBuilder, setShowBuilder] = useState(false);
@@ -127,6 +133,9 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
 
   const handleCreatePlan = (book: BookPdf, generated: GeneratedPlan) => {
     if (!onUpdateStudent || !onSavePlan) return;
+    // كتاب من المكتبة المركزية؟ نبلّغ الأب يزوّد عدّاد الاستخدام
+    const fromLibrary = libraryBooks.find(b => b.storagePath && b.storagePath === book.storagePath);
+    if (fromLibrary) onLibraryBookUsed?.(fromLibrary);
     // 1) register the uploaded book on the student record
     const withBook: Student = {
       ...activeStudent,
@@ -1005,6 +1014,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           onSubmit={handleCreatePlan}
           onUpload={onUploadBookFile}
           storageBackend={bookStorageBackend}
+          libraryBooks={libraryBooks}
         />
       )}
 
