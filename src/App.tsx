@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan, LibraryBook } from './types';
+import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan } from './types';
 import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS, INITIAL_ACTIVATION_CODES } from './data/mockData';
 import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
@@ -14,7 +14,6 @@ import { StudentSupportMode } from './components/admin/StudentSupportMode';
 import { ActivationCodePage } from './components/student/ActivationCodePage';
 import { StudentDashboardView } from './components/student/StudentDashboardView';
 import { LoginPage } from './components/auth/LoginPage';
-import { BooksLibraryManager } from './components/admin/BooksLibraryManager';
 import {
   subscribeStudents,
   subscribeStudentById,
@@ -41,14 +40,6 @@ import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
 import { uploadBook, deleteBookFile, getBookFileUrl, resolveStorageBackend } from './lib/booksService';
 import { initAnalytics } from './lib/firebase';
 import {
-  subscribeLibrary,
-  addLibraryBook,
-  updateLibraryBook,
-  deleteLibraryBook,
-  incrementLibraryUse
-} from './lib/libraryService';
-import { ACADEMIC_STAGES } from './data/academicStages';
-import {
   watchSession,
   adminSignIn,
   adminSignOut,
@@ -72,8 +63,7 @@ import {
   Home,
   UserX,
   Cloud,
-  CloudOff,
-  Library
+  CloudOff
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -112,9 +102,6 @@ export const App: React.FC = () => {
   const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>([]);
   const [dataError, setDataError] = useState<string | null>(null);
   const [storageBackend, setStorageBackend] = useState<'storage' | 'firestore'>('firestore');
-  // مكتبة الكتب المركزية (بيرفعها الأدمن، وكل الطلاب بيختاروا منها)
-  const [libraryBooks, setLibraryBooks] = useState<LibraryBook[]>([]);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
 
   // Real-time data from the shared database — للأدمن فقط
   // (قواعد الأمان بتمنع الطالب من قراءة كل الطلاب؛ هو عنده اشتراك على مستنده)
@@ -185,22 +172,6 @@ export const App: React.FC = () => {
       cancelled = true;
     };
   }, []);
-
-  // المكتبة المركزية — قراءة متاحة لأي مستخدم مسجّل (أدمن أو طالب)
-  useEffect(() => {
-    if (!session) {
-      setLibraryBooks([]);
-      return;
-    }
-    return subscribeLibrary(
-      setLibraryBooks,
-      error => {
-        const code = (error as { code?: string })?.code || String(error);
-        setLibraryError(code);
-        console.warn('[library] listener', error);
-      }
-    );
-  }, [session?.uid]);
 
   // اختيار وسيلة تخزين الكتب تلقائياً (Storage لو Blaze، وإلا Firestore)
   useEffect(() => {
@@ -307,124 +278,6 @@ export const App: React.FC = () => {
   ): Promise<{ success: boolean; error?: string }> => {
     const result = await sendAdminPasswordReset(email, isArabic);
     return { success: result.ok, error: result.error };
-  };
-
-  /* ============================================================
-     مكتبة الكتب المركزية (Admin) — رفع/تعديل/حذف
-     ============================================================ */
-  const handleUploadLibraryBook = async (
-    input: {
-      title: string;
-      subject: string;
-      stageId: string;
-      pageCount: number;
-      file: File;
-    },
-    onProgress?: (percent: number) => void
-  ): Promise<{ success: boolean; error?: string }> => {
-    const stage = ACADEMIC_STAGES.find(st => st.id === input.stageId);
-    const result = await addLibraryBook(
-      {
-        title: input.title,
-        subject: input.subject,
-        stageId: input.stageId,
-        stageLabelAr: stage?.labelAr,
-        stageLabelEn: stage?.labelEn,
-        pageCount: input.pageCount,
-        file: input.file,
-        createdBy: adminEmail || 'admin'
-      },
-      onProgress
-    );
-
-    if (!result.ok || !result.book) {
-      setLibraryError(result.error || 'upload-failed');
-      return {
-        success: false,
-        error:
-          result.error === 'upload-failed'
-            ? isArabic
-              ? 'تعذّر رفع الملف — راجع قواعد Firestore/Storage أو جرّب ملف أصغر.'
-              : 'Upload failed — check the Firestore/Storage rules or try a smaller file.'
-            : result.error
-      };
-    }
-
-    // اشتراك الـ snapshot هيعرضه، لكن بنضيفه فوراً لتحسين الاستجابة
-    setLibraryBooks(prev => [result.book as LibraryBook, ...prev.filter(b => b.id !== result.book!.id)]);
-    setLibraryError(null);
-
-    pushAuditLog({
-      id: `log-lib-add-${Date.now()}`,
-      adminId: session?.uid || 'ADMIN',
-      adminName: adminEmail || 'Admin',
-      targetStudentId: 'LIBRARY',
-      studentName: 'Central Library',
-      actionSource: 'ADMIN',
-      changedField: 'libraryBookAdded',
-      oldValue: 'None',
-      newValue: `${result.book.title} (${result.book.subject}, ${result.book.pageCount} pages)`,
-      reason: 'Admin added a book to the central library',
-      timestamp: new Date().toISOString()
-    });
-
-    return { success: true };
-  };
-
-  const handleUpdateLibraryBook = async (
-    id: string,
-    patch: { title: string; subject: string; stageId: string; pageCount: number }
-  ): Promise<boolean> => {
-    const stage = ACADEMIC_STAGES.find(st => st.id === patch.stageId);
-    const ok = await updateLibraryBook(id, {
-      title: patch.title,
-      subject: patch.subject,
-      stageId: patch.stageId,
-      stageLabelAr: stage?.labelAr,
-      stageLabelEn: stage?.labelEn,
-      pageCount: patch.pageCount
-    });
-    if (ok) {
-      setLibraryBooks(prev =>
-        prev.map(b =>
-          b.id === id
-            ? {
-                ...b,
-                title: patch.title,
-                subject: patch.subject,
-                stageId: patch.stageId,
-                stageLabelAr: stage?.labelAr,
-                stageLabelEn: stage?.labelEn,
-                pageCount: patch.pageCount
-              }
-            : b
-        )
-      );
-    }
-    return ok;
-  };
-
-  const handleDeleteLibraryBook = async (
-    book: LibraryBook
-  ): Promise<{ success: boolean; error?: string }> => {
-    const result = await deleteLibraryBook(book);
-    if (!result.ok) return { success: false, error: result.error };
-
-    setLibraryBooks(prev => prev.filter(b => b.id !== book.id));
-    pushAuditLog({
-      id: `log-lib-del-${Date.now()}`,
-      adminId: session?.uid || 'ADMIN',
-      adminName: adminEmail || 'Admin',
-      targetStudentId: 'LIBRARY',
-      studentName: 'Central Library',
-      actionSource: 'ADMIN',
-      changedField: 'libraryBookDeleted',
-      oldValue: book.title,
-      newValue: 'Removed from library',
-      reason: 'Admin permanently deleted a book from the central library',
-      timestamp: new Date().toISOString()
-    });
-    return { success: true };
   };
 
   /**
@@ -1250,7 +1103,6 @@ export const App: React.FC = () => {
   // ROUTE PROTECTION: Admin views require either the Super Admin session or a student promoted to admin
   const isProtectedAdminTab =
     activeTab === 'students' ||
-    activeTab === 'books_library' ||
     activeTab === 'code_generator' ||
     activeTab === 'audit_logs' ||
     activeTab === 'delete_students';
@@ -1364,8 +1216,6 @@ export const App: React.FC = () => {
         onDeleteBookFile={deleteBookFile}
         onOpenBookFile={getBookFileUrl}
         bookStorageBackend={storageBackend}
-        libraryBooks={libraryBooks}
-        onLibraryBookUsed={incrementLibraryUse}
       />
     );
   }
@@ -1378,11 +1228,6 @@ export const App: React.FC = () => {
       key: 'students',
       label: isArabic ? 'الطلاب' : 'Students',
       icon: <Users className="w-5 h-5" />
-    },
-    {
-      key: 'books_library',
-      label: isArabic ? 'المكتبة' : 'Library',
-      icon: <Library className="w-5 h-5" />
     },
     {
       key: 'code_generator',
@@ -1601,29 +1446,6 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'books_library' && (
-          <div className="space-y-3">
-            {libraryError && (
-              <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-3 text-[11px] text-amber-200">
-                {isArabic ? 'تعذّر تحميل المكتبة: ' : 'Could not load the library: '}
-                <span className="font-mono">{libraryError}</span>
-                {' — '}
-                {isArabic ? 'راجع قواعد Firestore (مجموعة libraryBooks).' : 'check the Firestore rules (libraryBooks).'}
-              </div>
-            )}
-            <BooksLibraryManager
-              isArabic={isArabic}
-              books={libraryBooks}
-              isSuperAdmin={isSuperAdmin}
-              storageBackend={storageBackend}
-              onUploadBook={handleUploadLibraryBook}
-              onUpdateBook={handleUpdateLibraryBook}
-              onDeleteBook={handleDeleteLibraryBook}
-              onOpenBook={getBookFileUrl}
-            />
-          </div>
-        )}
-
         {activeTab === 'code_generator' && (
           <ActivationCodeGenerator
             isArabic={isArabic}
@@ -1657,7 +1479,7 @@ export const App: React.FC = () => {
 
       {/* Mobile Bottom Navigation (app-like, thumb friendly) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]">
-        <div className={`grid gap-1 ${isSuperAdmin ? 'grid-cols-5' : 'grid-cols-4'}`}>
+        <div className={`grid gap-1 ${isSuperAdmin ? 'grid-cols-4' : 'grid-cols-3'}`}>
           {navItems.map(item => (
             <button
               key={item.key}

@@ -106,34 +106,19 @@ service cloud.firestore {
                     && request.resource.data.code == resource.data.code;
     }
 
-    // ---- Central book library ----
-    // مكتبة مركزية: أي مستخدم مسجّل بيقرأ، والأدمن بس بيضيف/يعدّل/يحذف.
-    match /libraryBooks/{bookId} {
-      allow read: if signedIn();
-      allow create, update, delete: if isAdmin();
-    }
-
     // ---- Book files (free-plan storage fallback) ----
     // bookFiles/{fileId} + bookFiles/{fileId}/chunks/{index}
     match /bookFiles/{fileId} {
-      // ملفات المكتبة (ownerUid = 'library') متاحة لأي مستخدم مسجّل
-      allow read:   if signedIn()
-                    && (isAdmin()
-                        || resource.data.ownerUid == request.auth.uid
-                        || resource.data.ownerUid == 'library');
+      allow read:   if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
       allow delete: if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
-      allow update: if isAdmin();
+      allow update: if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
 
       match /chunks/{chunkId} {
         function parentOwner() {
           return get(/databases/$(database)/documents/bookFiles/$(fileId)).data.ownerUid;
         }
-        allow read: if signedIn()
-                    && (isAdmin()
-                        || parentOwner() == request.auth.uid
-                        || parentOwner() == 'library');
-        allow create, update, delete: if signedIn()
+        allow read, create, update, delete: if signedIn()
                     && (isAdmin() || parentOwner() == request.auth.uid);
       }
     }

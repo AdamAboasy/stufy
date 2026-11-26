@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { BookPdf, GeneratedPlan, LibraryBook, Student } from '../../types';
+import { BookPdf, GeneratedPlan, Student } from '../../types';
 import { checkFeasibility, formatDateAr, generateStudyPlan } from '../../lib/planEngine';
 import {
   BookOpen,
@@ -15,10 +15,7 @@ import {
   ChevronRight,
   X,
   ListChecks,
-  Coffee,
-  Library,
-  Search,
-  GraduationCap
+  Coffee
 } from 'lucide-react';
 
 interface BookPlanBuilderProps {
@@ -26,10 +23,6 @@ interface BookPlanBuilderProps {
   isArabic: boolean;
   onCancel?: () => void;
   onSubmit: (book: BookPdf, plan: GeneratedPlan) => void;
-  /** مكتبة الكتب المركزية — الطالب يختار منها الكتاب بدل ما يرفع من جهازه */
-  libraryBooks?: LibraryBook[];
-  /** هل يسمح برفع كتاب من الجهاز؟ (افتراضي: نعم كخيار احتياطي) */
-  allowOwnUpload?: boolean;
   /** رفع الملف (Storage أو بديل Firestore) — بيرجع رابط الملف ومساره */
   onUpload?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
   /** الوسيلة المتاحة حالياً — بتغيّر النص التوضيحي والحد العملي */
@@ -66,9 +59,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
   onCancel,
   onSubmit,
   onUpload,
-  storageBackend = 'firestore',
-  libraryBooks = [],
-  allowOwnUpload = true
+  storageBackend = 'firestore'
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -81,12 +72,6 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
   const [bookTitle, setBookTitle] = useState('');
   const [subject, setSubject] = useState(student.subjects?.[0]?.name || 'Physics');
   const [pageCount, setPageCount] = useState(200);
-  // اختيار من المكتبة (الوضع الافتراضي) أو رفع من الجهاز
-  const [pickMode, setPickMode] = useState<'library' | 'upload'>(
-    libraryBooks.length > 0 || !allowOwnUpload ? 'library' : 'upload'
-  );
-  const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(null);
-  const [librarySearch, setLibrarySearch] = useState('');
 
   // Step 2: the exam
   const [examDate, setExamDate] = useState(student.studyPreferences?.examDate || '');
@@ -99,33 +84,8 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  const selectedLibraryBook = useMemo(
-    () => libraryBooks.find(b => b.id === selectedLibraryId) || null,
-    [libraryBooks, selectedLibraryId]
-  );
-
   const draftBook: BookPdf = useMemo(
-    () => {
-      // كتاب مختار من المكتبة: نفس ملفه ومساره، من غير أي رفع
-      if (selectedLibraryBook) {
-        return {
-          id: `pdf-${selectedLibraryBook.id}`,
-          title: bookTitle.trim() || selectedLibraryBook.title,
-          subject: subject || selectedLibraryBook.subject,
-          originalFilename: selectedLibraryBook.originalFilename,
-          fileSizeMb: selectedLibraryBook.fileSizeMb,
-          pageCount: Number(pageCount) || selectedLibraryBook.pageCount || 1,
-          uploadDate: new Date().toISOString(),
-          isIndexed: true,
-          analyzedSummary: isArabic
-            ? 'كتاب من المكتبة المركزية — تم تقسيمه لفصول لبناء خطة المذاكرة.'
-            : 'Book from the central library — split into chapters for scheduling.',
-          keyConceptsCount: Math.max(20, Math.round((Number(pageCount) || 1) * 0.6)),
-          fileUrl: selectedLibraryBook.fileUrl,
-          storagePath: selectedLibraryBook.storagePath
-        };
-      }
-      return {
+    () => ({
       id: `pdf-${Date.now()}`,
       title: bookTitle.trim() || fileName.replace(/\.pdf$/i, '') || (isArabic ? 'كتاب بدون عنوان' : 'Untitled book'),
       subject,
@@ -138,9 +98,8 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
         ? `تم تحليل الكتاب وتقسيمه إلى فصول تقديرية لبناء خطة مذاكرة منظمة.`
         : 'Book analysed and split into estimated chapters for scheduling.',
       keyConceptsCount: Math.max(20, Math.round((Number(pageCount) || 1) * 0.6))
-      };
-    },
-    [bookTitle, fileName, fileSizeMb, pageCount, subject, isArabic, selectedLibraryBook]
+    }),
+    [bookTitle, fileName, fileSizeMb, pageCount, subject, isArabic]
   );
 
   const feasibility = useMemo(
@@ -172,44 +131,6 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
     setPageCount(estimate);
   };
 
-  /** اختيار كتاب من المكتبة المركزية (مفيش رفع ولا انتظار) */
-  const selectLibraryBook = (book: LibraryBook) => {
-    setSelectedLibraryId(book.id);
-    setError(null);
-    setFileName(book.originalFilename);
-    setFileSizeMb(book.fileSizeMb);
-    setBookTitle(book.title);
-    setSubject(book.subject || 'Physics');
-    setPageCount(book.pageCount || 200);
-    setFile(null);
-  };
-
-  /** كتب المكتبة المطابقة لمرحلة الطالب أولاً، وبعدها كل الكتب */
-  const libraryForStudent = useMemo(() => {
-    const term = librarySearch.trim().toLowerCase();
-    const stageLabel = student.academicYearAr || '';
-    const stageLabelEn = student.academicYear || '';
-
-    const matches = (b: LibraryBook) => {
-      if (!term) return true;
-      return (
-        b.title.toLowerCase().includes(term) ||
-        (b.subject || '').toLowerCase().includes(term) ||
-        (b.stageLabelAr || '').includes(librarySearch.trim()) ||
-        (b.stageLabelEn || '').toLowerCase().includes(term)
-      );
-    };
-
-    const relevant = libraryBooks.filter(
-      b =>
-        matches(b) &&
-        (!b.stageId || b.stageId === '' || b.stageLabelAr === stageLabel || b.stageLabelEn === stageLabelEn)
-    );
-    // لو مفيش كتب لمرحلته، نعرض كل المكتبة (أفضل من شاشة فاضية)
-    const list = relevant.length > 0 ? relevant : libraryBooks.filter(matches);
-    return list;
-  }, [libraryBooks, librarySearch, student.academicYearAr, student.academicYear]);
-
   const toggleDayOff = (day: number) => {
     setDaysOff(prev => (prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]));
   };
@@ -224,26 +145,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
 
     let finalBook: BookPdf = draftBook;
 
-    // لازم يكون فيه كتاب: مختار من المكتبة أو مرفوع من الجهاز
-    if (pickMode === 'library' && !selectedLibraryBook) {
-      setError(isArabic ? 'اختار كتاب من المكتبة الأول.' : 'Please pick a book from the library first.');
-      return;
-    }
-
-    // كتاب من المكتبة: مفيش رفع، الملف محفوظ بالفعل
-    if (selectedLibraryBook) {
-      const plan = generateStudyPlan({
-        book: draftBook,
-        examDate,
-        revisionRounds,
-        dailyMinutes,
-        daysOff
-      });
-      onSubmit(draftBook, plan);
-      return;
-    }
-
-    // رفع من الجهاز: الملف إلزامي، ولازم يترفع فعلاً
+    // الملف إلزامي، ولازم يترفع فعلاً — مفيش «تم» من غير ما الكتاب يتخزن
     if (onUpload) {
       if (!file) {
         setError(isArabic ? 'اختار ملف الكتاب (PDF) الأول.' : 'Please choose the book PDF first.');
@@ -356,7 +258,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
               </div>
             )}
 
-            {/* STEP 1: BOOK — اختيار من المكتبة المركزية (الافتراضي) */}
+            {/* STEP 1: BOOK */}
             {step === 1 && (
               <div className="space-y-4">
                 <input
@@ -367,154 +269,41 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                   onChange={(e) => handleFile(e.target.files?.[0] || null)}
                 />
 
-                {/* Mode switch: المكتبة / رفع من جهازي */}
-                {allowOwnUpload && (
-                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setPickMode('library')}
-                      className={`py-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors ${
-                        pickMode === 'library' ? 'bg-brand-blue text-white' : 'text-slate-400'
-                      }`}
-                    >
-                      <Library className="w-3.5 h-3.5" />
-                      {isArabic ? 'من مكتبة الكتب' : 'From the library'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPickMode('upload')}
-                      className={`py-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors ${
-                        pickMode === 'upload' ? 'bg-brand-blue text-white' : 'text-slate-400'
-                      }`}
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      {isArabic ? 'أرفع كتابي' : 'Upload my own'}
-                    </button>
-                  </div>
-                )}
-
-                {pickMode === 'library' ? (
-                  <div className="space-y-2.5">
-                    {libraryBooks.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/60 p-6 text-center space-y-1.5">
-                        <Library className="w-8 h-8 text-slate-600 mx-auto" />
-                        <p className="text-xs font-bold text-slate-300">
-                          {isArabic ? 'مكتبة الكتب لسه فاضية' : 'The books library is empty yet'}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          {isArabic
-                            ? 'الإدارة بتحمّل الكتب — أو ارفع كتابك دلوقتي من الخيار التاني.'
-                            : 'Admins add the books — or upload your own from the other option.'}
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={librarySearch}
-                            onChange={(e) => setLibrarySearch(e.target.value)}
-                            placeholder={isArabic ? 'ابحث باسم الكتاب أو المادة...' : 'Search by book or subject...'}
-                            className="w-full px-3.5 py-2.5 pr-9 rtl:pr-3.5 rtl:pl-9 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs"
-                          />
-                          <Search className="w-3.5 h-3.5 text-slate-500 absolute top-3 right-3 rtl:right-auto rtl:left-3" />
-                        </div>
-
-                        <div className="max-h-64 overflow-y-auto space-y-1.5 pr-0.5">
-                          {libraryForStudent.length === 0 && (
-                            <p className="text-[11px] text-slate-500 text-center py-4">
-                              {isArabic ? 'مفيش كتاب مطابق لبحثك.' : 'No book matches your search.'}
-                            </p>
-                          )}
-                          {libraryForStudent.map(book => {
-                            const active = selectedLibraryId === book.id;
-                            return (
-                              <button
-                                key={book.id}
-                                type="button"
-                                onClick={() => selectLibraryBook(book)}
-                                className={`w-full text-start rounded-xl border p-2.5 flex items-center gap-2.5 transition-colors ${
-                                  active
-                                    ? 'border-emerald-500/50 bg-emerald-950/30'
-                                    : 'border-slate-800 bg-slate-950 hover:bg-slate-900'
-                                }`}
-                              >
-                                <div className={`p-1.5 rounded-lg shrink-0 ${active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-brand-blue-electric'}`}>
-                                  <FileText className="w-3.5 h-3.5" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-[11px] font-bold text-white truncate">{book.title}</div>
-                                  <div className="text-[10px] text-slate-400 truncate flex items-center gap-1.5">
-                                    <span>{book.subject}</span>
-                                    <span>•</span>
-                                    <span>{book.pageCount} {isArabic ? 'صفحة' : 'pages'}</span>
-                                    {book.stageLabelAr && (
-                                      <>
-                                        <span>•</span>
-                                        <span className="inline-flex items-center gap-0.5">
-                                          <GraduationCap className="w-2.5 h-2.5" />
-                                          {isArabic ? book.stageLabelAr : book.stageLabelEn}
-                                        </span>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                                {active && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        {selectedLibraryBook && (
-                          <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-[11px] text-emerald-200 flex items-start gap-2">
-                            <CheckCircle2 className="w-4 h-4 shrink-0" />
-                            <span>
-                              {isArabic
-                                ? `اخترت «${selectedLibraryBook.title}» — مفيش رفع، الملف جاهز على السيرفر.`
-                                : `Selected “${selectedLibraryBook.title}” — no upload needed, it is already on the server.`}
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`w-full rounded-2xl border-2 border-dashed p-6 sm:p-8 flex flex-col items-center gap-2 transition-colors ${
-                      fileName
-                        ? 'border-emerald-500/40 bg-emerald-950/20'
-                        : 'border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10'
-                    }`}
-                  >
-                    {fileName ? (
-                      <>
-                        <CheckCircle2 className="w-9 h-9 text-emerald-400" />
-                        <span className="text-sm font-bold text-white break-all text-center">{fileName}</span>
-                        <span className="text-[11px] text-slate-400">
-                          {fileSizeMb} MB • {isArabic ? 'اضغط لتغيير الكتاب' : 'Tap to change book'}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-9 h-9 text-brand-blue-electric" />
-                        <span className="text-sm font-bold text-white">
-                          {isArabic ? 'اضغط لرفع كتاب PDF' : 'Tap to upload your PDF book'}
-                        </span>
-                        <span className="text-[11px] text-slate-400">
-                          {storageBackend === 'storage'
-                            ? (isArabic
-                                ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُرفع على Firebase Storage`
-                                : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firebase Storage`)
-                            : (isArabic
-                                ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُخزَّن على Firestore (الخطة المجانية)`
-                                : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firestore (free plan)`)}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`w-full rounded-2xl border-2 border-dashed p-6 sm:p-8 flex flex-col items-center gap-2 transition-colors ${
+                    fileName
+                      ? 'border-emerald-500/40 bg-emerald-950/20'
+                      : 'border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10'
+                  }`}
+                >
+                  {fileName ? (
+                    <>
+                      <CheckCircle2 className="w-9 h-9 text-emerald-400" />
+                      <span className="text-sm font-bold text-white break-all text-center">{fileName}</span>
+                      <span className="text-[11px] text-slate-400">
+                        {fileSizeMb} MB • {isArabic ? 'اضغط لتغيير الكتاب' : 'Tap to change book'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-9 h-9 text-brand-blue-electric" />
+                      <span className="text-sm font-bold text-white">
+                        {isArabic ? 'اضغط لرفع كتاب PDF' : 'Tap to upload your PDF book'}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {storageBackend === 'storage'
+                          ? (isArabic
+                              ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُرفع على Firebase Storage`
+                              : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firebase Storage`)
+                          : (isArabic
+                              ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُخزَّن على Firestore (الخطة المجانية)`
+                              : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firestore (free plan)`)}
+                      </span>
+                    </>
+                  )}
+                </button>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">
@@ -566,18 +355,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                 </div>
 
                 <button
-                  onClick={() => {
-                    if (pickMode === 'library' && !selectedLibraryBook) {
-                      setError(isArabic ? 'اختار كتاب من المكتبة الأول.' : 'Please pick a book from the library first.');
-                      return;
-                    }
-                    if (pickMode === 'upload' && !file) {
-                      setError(isArabic ? 'اختار ملف الكتاب (PDF) الأول.' : 'Please choose the book PDF first.');
-                      return;
-                    }
-                    setError(null);
-                    setStep(2);
-                  }}
+                  onClick={() => setStep(2)}
                   className="w-full py-3.5 rounded-xl bg-brand-blue hover:bg-brand-blue-dark text-white text-sm font-bold flex items-center justify-center gap-2"
                 >
                   <span>{isArabic ? 'التالي: موعد الامتحان' : 'Next: exam date'}</span>
