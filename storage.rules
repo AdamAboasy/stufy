@@ -29,13 +29,6 @@ service firebase.storage {
       return staffRole() in ['SUPER_ADMIN', 'STUDENT_ADMIN'];
     }
 
-    // مكتبة الكتب المركزية — كتب عامة يقرأها أي مستخدم مسجّل، والأدمن بس يرفع/يحذف
-    match /books/library/{fileName} {
-      allow read:   if signedIn();
-      allow write:  if isAdmin() && request.resource.size < 200 * 1024 * 1024;
-      allow delete: if isAdmin();
-    }
-
     match /books/{studentId}/{fileName} {
       allow read:   if signedIn() && (isAdmin() || request.auth.uid == studentId);
       allow write:  if signedIn()

@@ -128,8 +128,7 @@ const uploadToFirestore = async (
   studentId: string,
   bookId: string,
   file: File,
-  onProgress?: (percent: number) => void,
-  ownerUid?: string
+  onProgress?: (percent: number) => void
 ): Promise<UploadedBookFile | null> => {
   const fileDocId = `${studentId}__${bookId}`;
   const buffer = await file.arrayBuffer();
@@ -138,7 +137,7 @@ const uploadToFirestore = async (
   // 1) مستند البيانات الوصفية (من غير الشرائح)
   // ownerUid = صاحب الملف — قواعد الأمان بتتحقق منه
   await setDoc(doc(db, FILES_COLLECTION, fileDocId), {
-    ownerUid: ownerUid || auth.currentUser?.uid || null,
+    ownerUid: auth.currentUser?.uid || null,
     studentId,
     bookId,
     fileName: file.name,
@@ -176,14 +175,12 @@ const uploadToFirestore = async (
 /**
  * رفع ملف الكتاب. بيرجع null لو كل الوسائل فشلت
  * (الملف نفسه بيتحفظ في بيانات الطالب على Firestore في الحالتين).
- * ownerUid: 'library' لملفات المكتبة المركزية (متاحة لكل الطلاب المسجّلين).
  */
 export const uploadBook = async (
   studentId: string,
   bookId: string,
   file: File,
-  onProgress?: (percent: number) => void,
-  ownerUid?: string
+  onProgress?: (percent: number) => void
 ): Promise<UploadedBookFile | null> => {
   const backend = await resolveStorageBackend();
 
@@ -204,7 +201,7 @@ export const uploadBook = async (
   }
 
   try {
-    return await uploadToFirestore(studentId, bookId, file, onProgress, ownerUid);
+    return await uploadToFirestore(studentId, bookId, file, onProgress);
   } catch (error) {
     console.warn('[books] firestore upload failed', error);
     return null;
