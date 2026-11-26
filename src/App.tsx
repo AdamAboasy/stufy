@@ -39,6 +39,7 @@ import {
 import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
 import { uploadBook, deleteBookFile, getBookFileUrl, resolveStorageBackend } from './lib/booksService';
 import { initAnalytics } from './lib/firebase';
+import { resetAllAppData } from './lib/resetService';
 import {
   watchSession,
   adminSignIn,
@@ -460,7 +461,7 @@ export const App: React.FC = () => {
       ],
       uploadedPdfs: [],
       subjects: templateStudent.subjects,
-      studyPreferences: undefined,
+      studyPreferences: null,
       generatedPlan: null,
       dailyTasks: [],
       studyPlans: [],
@@ -862,6 +863,46 @@ export const App: React.FC = () => {
         ? `تم حذف حساب الطالب (${student.fullNameAr || student.fullName}) نهائياً من السحابة وتوثيق العملية.`
         : `Student (${student.fullName}) permanently deleted from the cloud and logged.`
     );
+  };
+
+  /* ============================================================
+     تصفير النظام (Super Admin only) — بداية نظيفة
+     ============================================================ */
+  const handleResetAllData = async () => {
+    const keepUid = session?.uid || '';
+    const report = await resetAllAppData(keepUid);
+
+    if (report.ok) {
+      setStudents([]);
+      setActivationCodes([]);
+      setAuditLogs([]);
+      setCurrentStudent(null);
+      localStorage.removeItem('ssp_student_id');
+      localStorage.removeItem('ssp_student_email');
+      localStorage.removeItem('ssp_students');
+      localStorage.removeItem('ssp_deleted_ids');
+      localStorage.removeItem('ssp_pending_students');
+    }
+
+    const summary = isArabic
+      ? `تم التصفير: ${Object.entries(report.deleted)
+          .map(([key, value]) => `${key} ${value}`)
+          .join(' • ')}`
+      : `Reset done: ${Object.entries(report.deleted)
+          .map(([key, value]) => `${key} ${value}`)
+          .join(' • ')}`;
+
+    showToast(
+      report.ok
+        ? isArabic
+          ? '✅ تم تصفير كل البيانات — تقدر تبدأ من جديد.'
+          : '✅ All data was cleared — you can start fresh.'
+        : isArabic
+        ? '⚠️ التصفير خلص لكن فيه عناصر فشلت — شوف التفاصيل.'
+        : '⚠️ Reset finished but some items failed — see details.'
+    );
+
+    return { ok: report.ok, summary, errors: report.errors };
   };
 
   /* ============================================================
@@ -1472,6 +1513,7 @@ export const App: React.FC = () => {
             cloudError={dataError}
             onDeleteStudent={handleDeleteStudent}
             onBulkDeleteDemo={handleBulkDeleteTestStudents}
+            onResetAllData={handleResetAllData}
           />
         )}
 

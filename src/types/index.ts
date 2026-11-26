@@ -220,7 +220,8 @@ export interface Student {
   revisionPlanner: ExamRevisionPlanner;
   performanceReport: PerformanceReport;
   activationHistory: ActivationHistoryItem[];
-  studyPreferences?: StudyPreferences;
+  /** تفضيلات المذاكرة — null لما الطالب لسه ما اختارش (Firestore بيرفض undefined) */
+  studyPreferences?: StudyPreferences | null;
   generatedPlan?: GeneratedPlan | null;
   overallProgress: number; // 0-100
   notes?: string;
