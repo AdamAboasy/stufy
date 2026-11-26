@@ -88,6 +88,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [setupName, setSetupName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // أول تشغيل (مفيش أي أدمن): بنفتح وضع الإنشاء تلقائياً بدل ما الطالب يدوّر عليه
+  React.useEffect(() => {
+    if (hasAdminAccount === false) setSetupMode(true);
+  }, [hasAdminAccount]);
+
+  /** تصنيف الخطأ عشان نعرض خطوة تالية واضحة بدل رسالة جافة */
+  const errorLower = (errorMessage || '').toLowerCase();
+  const isMissingAccountError =
+    errorLower.includes('user-not-found') ||
+    errorLower.includes('invalid-credential') ||
+    errorLower.includes('wrong-password') ||
+    errorLower.includes('غير صحيحة') ||
+    errorLower.includes('لا يوجد حساب');
+  const isEmailPasswordDisabled = errorLower.includes('operation-not-allowed');
+  const isNetworkError = errorLower.includes('network');
+  const isDomainError = errorLower.includes('unauthorized-domain') || errorLower.includes('غير مصرح');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -400,11 +417,49 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
           )}
 
-          {/* Error Alert */}
+          {/* Error Alert + سبب واضح وخطوة تالية */}
           {errorMessage && (
-            <div className="mb-4 p-3.5 rounded-2xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs flex items-start gap-2.5 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
+            <div className="mb-4 p-3.5 rounded-2xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs space-y-2 animate-in fade-in">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{errorMessage}</span>
+              </div>
+
+              {/* الحساب مش موجود + فيه أدمن بالفعل ⇒ ده مش أول تشغيل */}
+              {isMissingAccountError && hasAdminAccount !== false && (
+                <p className="text-[11px] text-red-100/90 bg-red-900/40 rounded-xl p-2 leading-relaxed">
+                  {isArabic
+                    ? 'حساب الإدارة موجود بالفعل على قاعدة البيانات — الدخول هنا بيحتاج إيميل وكلمة المرور اللي اتسجلوا أول مرة. مفيش خطوة «إنشاء» تانية.'
+                    : 'The admin account already exists in the database — signing in needs the email and password registered the first time. There is no second “create” step.'}
+                </p>
+              )}
+
+              {/* البيانات غلط + أول تشغيل ⇒ المفروض ينشئ حساب */}
+              {isMissingAccountError && hasAdminAccount === false && !setupMode && (
+                <button
+                  type="button"
+                  onClick={() => setSetupMode(true)}
+                  className="w-full py-2 rounded-xl text-[11px] font-bold bg-emerald-500 text-slate-950"
+                >
+                  {isArabic ? 'مفيش حساب بعد — اضغط لإنشاء أول سوبر أدمن' : 'No account yet — create the first Super Admin'}
+                </button>
+              )}
+
+              {/* Email/Password مقفول في Console */}
+              {isEmailPasswordDisabled && (
+                <p className="text-[11px] text-red-100/90 bg-red-900/40 rounded-xl p-2 leading-relaxed font-mono">
+                  Console → Authentication → Sign-in method → Email/Password → Enable
+                </p>
+              )}
+
+              {/* الشبكة / الدومين */}
+              {(isNetworkError || isDomainError) && (
+                <p className="text-[11px] text-red-100/90 bg-red-900/40 rounded-xl p-2 leading-relaxed">
+                  {isArabic
+                    ? 'افتح أداة التشخيص: /docs/diagnostics/auth-check.html — بتقولك هل الإيميل/الباسورد مفعّل والدومين مسموح.'
+                    : 'Open /docs/diagnostics/auth-check.html — it reports whether Email/Password is enabled and the domain is authorized.'}
+                </p>
+              )}
             </div>
           )}
 

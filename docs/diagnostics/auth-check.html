@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Auth diagnostic</title>
+<style>body{background:#0f172a;color:#e2e8f0;font:14px system-ui;padding:24px;line-height:1.7}
+h1{font-size:18px}code{background:#1e293b;padding:2px 6px;border-radius:6px;font-size:12px}
+.ok{color:#34d399}.bad{color:#f87171}.box{background:#111c30;border:1px solid #1e293b;border-radius:12px;padding:14px;margin:10px 0}
+</style></head><body>
+<h1>Firebase Auth — تشخيص سريع</h1>
+<div class="box" id="env">…</div>
+<div class="box" id="out">…</div>
+<script type="module">
+const out = document.getElementById('out');
+const env = document.getElementById('env');
+const projectId = 'study-managment-45332';
+env.innerHTML = `Project: <code>${projectId}</code> · Page origin: <code>${location.origin}</code>`;
+
+const log = (html) => { out.innerHTML += html + '<br>'; };
+
+async function main() {
+  // 1) هل Email/Password مفعّل؟ نجرّب signUp بجوجل مع إيميل وهمي (هيرفض لأن الإيميل مستخدم أو لأنه مقفول)
+  const apiKey = 'AIzaSyBTCE6LNQSjCm9-K31iR-SDguJI1ytDkK8';
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: `probe_${Date.now()}@example.com`, password: 'Probe12345!', returnSecureToken: true })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      log(`<span class="ok">✅ Email/Password مُفعّل</span> (الحساب التجريبي اتقفل بعد الاختبار)`);
+    } else if (data?.error?.message === 'OPERATION_NOT_ALLOWED') {
+      log(`<span class="bad">❌ Email/Password مش مفعّل</span> → Console → Authentication → Sign-in method → Email/Password → Enable`);
+    } else {
+      log(`<span class="ok">✅ الخدمة متاحة</span> — رد Google: <code>${data?.error?.message || res.status}</code>`);
+    }
+  } catch (e) {
+    log(`<span class="bad">⚠️ فشل الاتصال بـ Google Identity Toolkit:</span> <code>${e.message}</code> (شبكة/بروكسي؟)`);
+  }
+
+  // 2) هل دومين الموقع مسموح في Authorized Domains؟
+  try {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects?key=${apiKey}`);
+    const data = await res.json();
+    const domains = data?.authorizedDomains || [];
+    const host = location.hostname;
+    const allowed = domains.some(d => host === d || host.endsWith('.' + d));
+    log(`الدومين الحالي: <code>${host}</code> — ${allowed ? '<span class="ok">مسموح ✅</span>' : '<span class="bad">مش في القائمة ❌</span>'}`);
+    log(`<small>Authorized domains: ${domains.map(d => `<code>${d}</code>`).join(' ')}</small>`);
+  } catch (e) {
+    log(`<small>تعذّر قراءة الدومينات المسموحة: ${e.message}</small>`);
+  }
+}
+main();
+</script></body></html>
