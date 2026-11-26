@@ -5,6 +5,7 @@ import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
 import { StudentMonitoring } from './components/admin/StudentMonitoring';
 import { StudentDeletionPanel } from './components/admin/StudentDeletionPanel';
+import { SetupAssistant } from './components/admin/SetupAssistant';
 import { ActivationCodeGenerator } from './components/admin/ActivationCodeGenerator';
 import { StudentProfileModal } from './components/admin/StudentProfileModal';
 import { AdminEditModal } from './components/admin/AdminEditModal';
@@ -1475,6 +1476,19 @@ export const App: React.FC = () => {
         )}
 
         {activeTab === 'students' && (
+          <div className="space-y-3">
+          <SetupAssistant
+            isArabic={isArabic}
+            studentCount={students.length}
+            codeCount={activationCodes.length}
+            onGoToTab={tab => {
+              if (tab === 'login') {
+                setActiveTab('login');
+                return;
+              }
+              setActiveTab(tab);
+            }}
+          />
           <StudentMonitoring
             students={students}
             isArabic={isArabic}
@@ -1485,6 +1499,7 @@ export const App: React.FC = () => {
             onDeleteStudent={handleDeleteStudent}
             onToggleStudentAdmin={handleToggleStudentAdmin}
           />
+          </div>
         )}
 
         {activeTab === 'code_generator' && (
