@@ -42,11 +42,17 @@ export const db: Firestore = (() => {
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-      experimentalAutoDetectLongPolling: true
+      experimentalAutoDetectLongPolling: true,
+      // Firestore بيرفض أي حقل قيمته undefined ويرجّع invalid-argument.
+      // الخيار ده بيشيل الحقول الفاضية بدل ما العملية تفشل كلها.
+      ignoreUndefinedProperties: true
     });
   } catch {
     // لو تمت التهيئة مسبقاً (HMR) أو فشل الـ IndexedDB
-    return initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+    return initializeFirestore(app, {
+      experimentalAutoDetectLongPolling: true,
+      ignoreUndefinedProperties: true
+    });
   }
 })();
 export const storage: FirebaseStorage = getStorage(app);

@@ -137,13 +137,18 @@ export const upsertStudent = async (
   student: Student
 ): Promise<{ ok: boolean; error?: string }> => {
   try {
+    // تنظيف أي حقل قيمته undefined قبل الكتابة (Firestore بيرفضها بـ invalid-argument)
+    const clean = Object.fromEntries(
+      Object.entries(student).filter(([, value]) => value !== undefined)
+    ) as Student;
+
     await setDoc(
       doc(db, COLLECTIONS.students, student.id),
       {
-        ...student,
-        email: (student.email || '').toLowerCase(),
+        ...clean,
+        email: (clean.email || '').toLowerCase(),
         // ملكية المستند — قواعد الأمان بتتحقق منها للطالب
-        ownerUid: student.ownerUid || auth.currentUser?.uid || null,
+        ownerUid: clean.ownerUid || auth.currentUser?.uid || null,
         updatedAt: serverTimestamp()
       },
       { merge: true }
