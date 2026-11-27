@@ -1,43 +1,18 @@
 rules_version = '2';
 
 // ============================================================
-// Smart Study Planner — Firebase Storage rules (PRODUCTION)
+// Smart Study Planner — Firebase Storage rules
 // نشر: Console → Storage → Rules → Publish (أو firebase deploy --only storage)
 //
-// - كل العمليات لازم تكون من مستخدم مسجّل (Firebase Auth).
-// - الطالب بيقرأ/يكتب ملفاته هو بس: books/{uid}/...
-// - الأدوار بتتقرأ من Firestore (staff/{uid}) — نفس موديل firestore.rules.
-// - حد أقصى 200MB للملف.
+// ⚠️ التطبيق مبقى بيرفع ملفات: رفع الكتب اتشال بالكامل، وكل البيانات
+// (الطلاب، الأكواد، الخطط) بقت مستندات Firestore فقط.
+// القواعد دي بتقفل كل المسارات (*) — يعني حتى لو حد عنده الـ SDK مش هيقدر
+// يرفع أو يقرأ أي ملف من الـ bucket.
 //
-// ملاحظة: Firebase Storage على الخطة المجانية (Spark) محتاج Blaze للتفعيل.
-// لو Storage مش متفعل، التطبيق بيستخدم بديل Firestore (bookFiles) تلقائياً.
+// Uploads were removed from the app; every path is denied by design.
 // ============================================================
 service firebase.storage {
   match /b/{bucket}/o {
-
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function staffRole() {
-      return signedIn()
-        ? firestore.get(/databases/(default)/documents/staff/$(request.auth.uid)).data.role
-        : null;
-    }
-
-    function isAdmin() {
-      return staffRole() in ['SUPER_ADMIN', 'STUDENT_ADMIN'];
-    }
-
-    match /books/{studentId}/{fileName} {
-      allow read:   if signedIn() && (isAdmin() || request.auth.uid == studentId);
-      allow write:  if signedIn()
-                    && (isAdmin() || request.auth.uid == studentId)
-                    && request.resource.size < 200 * 1024 * 1024;
-      allow delete: if signedIn() && (isAdmin() || request.auth.uid == studentId);
-    }
-
-    // أي مسار آخر: ممنوع
     match /{allPaths=**} {
       allow read, write: if false;
     }

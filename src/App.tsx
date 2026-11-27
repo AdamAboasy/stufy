@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan } from './types';
-import { INITIAL_STUDENTS, INITIAL_AUDIT_LOGS, INITIAL_ACTIVATION_CODES } from './data/mockData';
 import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
 import { StudentMonitoring } from './components/admin/StudentMonitoring';
@@ -19,6 +18,7 @@ import {
   subscribeStudents,
   subscribeStudentById,
   getStudentById,
+  getStudentFromServer,
   fetchStudentsFromServer,
   findStudentByEmail,
   upsertStudent,
@@ -33,14 +33,14 @@ import {
   saveActivationCode,
   markCodeRedeemed,
   revokeActivationCode,
-  fetchActivationCodes,
-  getActivationCode
+  getActivationCode,
+  redeemCodeAndCreateStudent,
+  describeDataError
 } from './lib/activationService';
 
 import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
-import { uploadBook, deleteBookFile, getBookFileUrl, resolveStorageBackend } from './lib/booksService';
 import { initAnalytics } from './lib/firebase';
-import { resetAllAppData } from './lib/resetService';
+import { resetAllAppData, reconcileBootstrapFlag } from './lib/resetService';
 import {
   watchSession,
   adminSignIn,
@@ -49,6 +49,7 @@ import {
   superAdminExists,
   sendAdminPasswordReset,
   studentEnsureAccount,
+  countAdmins,
   studentSignIn,
   linkStudentAccount,
   setStudentAdminRole,
@@ -103,7 +104,6 @@ export const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [activationCodes, setActivationCodes] = useState<GeneratedActivationCode[]>([]);
   const [dataError, setDataError] = useState<string | null>(null);
-  const [storageBackend, setStorageBackend] = useState<'storage' | 'firestore'>('firestore');
 
   // Real-time data from the shared database — للأدمن فقط
   // (قواعد الأمان بتمنع الطالب من قراءة كل الطلاب؛ هو عنده اشتراك على مستنده)
@@ -173,13 +173,6 @@ export const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  // اختيار وسيلة تخزين الكتب تلقائياً (Storage لو Blaze، وإلا Firestore)
-  useEffect(() => {
-    resolveStorageBackend()
-      .then(setStorageBackend)
-      .catch(() => setStorageBackend('firestore'));
   }, []);
 
   // استرجاع جلسة الطالب: بعد ما Firebase Auth يرجّع المستخدم بنقرأ ملفه هو بس
@@ -309,11 +302,8 @@ export const App: React.FC = () => {
     }
     // لو الحساب أدمن طالب: نقدر نبحث بالإيميل كمان
     if (!matched && isAdminRole(authResult.session?.role)) {
-      try {
-        matched = await findStudentByEmail(clean);
-      } catch {
-        matched = null;
-      }
+      const byEmail = await findStudentByEmail(clean).catch(() => ({ ok: false as const }));
+      if (byEmail.ok) matched = byEmail.student || null;
     }
 
     if (!matched) {
@@ -351,31 +341,54 @@ export const App: React.FC = () => {
   }): Promise<{ success: boolean; error?: string }> => {
     const cleanCode = data.activationCode.trim().toUpperCase();
 
-    // 1) الإيميل لازم يكون فريد على مستوى قاعدة البيانات كلها
-    try {
-      const alreadyRegistered = await findStudentByEmail(data.email);
-      if (alreadyRegistered) {
+    // 1) الإيميل لازم يكون فريد على مستوى قاعدة البيانات كلها.
+    //    بنقرأ قائمة الطلاب — مسموح للأدمن فقط، فالتسجيل بيتطلب حساب الإدارة
+    //    (وده مقصود: مفيش تسجيل مجهول).
+    const byEmail = await findStudentByEmail(data.email);
+    if (!byEmail.ok) {
+      const code = byEmail.error || 'unknown';
+      if (code === 'permission-denied' || code === 'unauthenticated') {
         return {
           success: false,
           error: isArabic
-            ? '❌ البريد الإلكتروني ده مسجّل بالفعل. جرّب تسجيل الدخول.'
-            : '❌ This email is already registered. Try signing in instead.'
+            ? '❌ لازم تسجّل دخول حساب الإدارة الأول (التسجيل بيتم من جهاز الإدارة) — أو انشر قواعد Firestore الصح.'
+            : '❌ Sign in with the admin account first (registration runs on the admin device) — or publish the correct Firestore rules.'
         };
       }
-    } catch {
-      /* لو الفحص فشل لأسباب شبكة، نكمل — والـ rules هتمنع التكرار */
+      return {
+        success: false,
+        error: describeDataError(code, isArabic)
+      };
+    }
+    if (byEmail.student) {
+      return {
+        success: false,
+        error: isArabic
+          ? '❌ البريد الإلكتروني ده مسجّل بالفعل. جرّب تسجيل الدخول.'
+          : '❌ This email is already registered. Try signing in instead.'
+      };
     }
 
-    // 2) كود التفعيل: من قاعدة البيانات المشتركة أولاً
-    let matchedCode: GeneratedActivationCode | null = null;
-    try {
-      matchedCode = await getActivationCode(cleanCode);
-    } catch {
-      matchedCode = null;
+    // 2) كود التفعيل: من قاعدة البيانات المشتركة (قراءة واحدة موثوقة)
+    const codeResult = await getActivationCode(cleanCode);
+
+    if (!codeResult.ok) {
+      // فرق بين «الكود مش موجود» و«مشكلة صلاحيات/شبكة» — عشان الرسالة تبقى صح
+      if (codeResult.error === 'permission-denied' || codeResult.error === 'unavailable') {
+        return {
+          success: false,
+          error: describeDataError(codeResult.error, isArabic)
+        };
+      }
+      return {
+        success: false,
+        error: isArabic
+          ? '❌ كود التفعيل غير موجود. تأكد من الكود أو تواصل معنا عبر واتساب.'
+          : '❌ This activation code was not found. Check it or contact WhatsApp support.'
+      };
     }
-    if (!matchedCode) {
-      matchedCode = activationCodes.find(c => (c.code || '').toUpperCase() === cleanCode) || null;
-    }
+
+    const matchedCode: GeneratedActivationCode | null = codeResult.data || null;
 
     let plan: SubscriptionPlan = 'Pro';
     let durationMonths = 6;
@@ -421,8 +434,6 @@ export const App: React.FC = () => {
     const nowIso = new Date().toISOString();
     const expiryDate = new Date(Date.now() + durationMonths * 30 * 24 * 3600 * 1000).toISOString();
 
-    const templateStudent = students[0] || INITIAL_STUDENTS[0];
-
     const newStudent: Student = {
       id: newStudentInternalId,
       studentId: newStudentId,
@@ -461,7 +472,8 @@ export const App: React.FC = () => {
         }
       ],
       uploadedPdfs: [],
-      subjects: templateStudent.subjects,
+      // مفيش مواد/مهام جاهزة — الخطة بتتبني من كتاب الطالب وموعد الامتحان
+      subjects: [],
       studyPreferences: null,
       generatedPlan: null,
       dailyTasks: [],
@@ -497,28 +509,47 @@ export const App: React.FC = () => {
       ]
     };
 
-    // 3) الحفظ في قاعدة البيانات المشتركة — قبل أي وعد للطالب بالنجاح
-    const saved = await upsertStudent(newStudent);
-    if (!saved.ok) {
-      return {
-        success: false,
-        error: isArabic
-          ? `❌ تعذّر إنشاء الحساب في قاعدة البيانات (${saved.error}). راجع قواعد Firestore أو حاول تاني.`
-          : `❌ Could not create the account in the database (${saved.error}). Check Firestore rules or retry.`
-      };
+    // 3) الحفظ في قاعدة البيانات: إنشاء الطالب + استهلاك الكود في معاملة واحدة
+    const redeem = await redeemCodeAndCreateStudent({
+      code: cleanCode,
+      studentId: newStudentInternalId,
+      studentData: { ...newStudent, ownerUid: newStudentInternalId },
+      assignedStudentId: newStudentId,
+      assignedStudentName: data.fullName
+    });
+
+    if (!redeem.ok) {
+      const message =
+        redeem.error === 'code-redeemed'
+          ? isArabic
+            ? '❌ هذا الكود تم استخدامه للتوّ على جهاز تاني.'
+            : '❌ This code was just redeemed on another device.'
+          : redeem.error === 'code-revoked'
+          ? isArabic
+            ? '❌ هذا الكود تم إلغاؤه من قبل الإدارة.'
+            : '❌ This activation code has been revoked.'
+          : redeem.error === 'code-missing'
+          ? isArabic
+            ? '❌ الكود مش موجود في قاعدة البيانات — تأكد منه أو اطلب كود جديد.'
+            : '❌ The code is not in the database — check it or request a new one.'
+          : describeDataError(redeem.error || 'unknown', isArabic);
+
+      // تنظيف: لو الطالب اتعمل في Auth بس مستنده مش اتعمل، منسيبش حساب يتيم
+      await adminSignOut().catch(() => undefined);
+      return { success: false, error: message };
     }
 
     setStudents(prev => [newStudent, ...prev.filter(st => st.id !== newStudent.id)]);
 
     // ربط حساب الدخول بالملف (staff/{uid} = STUDENT + studentId)
-    await linkStudentAccount(account.uid, data.email, newStudentInternalId);
-
-    // Mark activation code as redeemed (shared DB — so it can't be reused on another device)
-    await markCodeRedeemed(cleanCode, {
-      id: newStudentInternalId,
-      studentId: newStudentId,
-      fullName: data.fullName
-    });
+    const linked = await linkStudentAccount(account.uid, data.email, newStudentInternalId);
+    if (!linked.ok) {
+      showToast(
+        isArabic
+          ? '⚠️ الحساب اتسجل بس تعذّر ربط الدور — جرّب تسجيل الدخول تاني.'
+          : '⚠️ Account created but the role link failed — try signing in again.'
+      );
+    }
 
     // Add immutable audit log entry
     const newAuditLog: AuditLog = {
@@ -575,14 +606,15 @@ export const App: React.FC = () => {
   // Generate Activation Code Handler (Super Admin)
   const handleGenerateCode = async (newCode: GeneratedActivationCode) => {
     const saved = await saveActivationCode(newCode);
-    setActivationCodes(prev => [newCode, ...prev.filter(c => c.id !== newCode.id)]);
     if (!saved.ok) {
       showToast(
         isArabic
-          ? `⚠️ تم إنشاء الكود محلياً لكن الحفظ في قاعدة البيانات فشل (${saved.error}).`
-          : `⚠️ Code created locally but the database write failed (${saved.error}).`
+          ? `❌ لم يتم حفظ الكود في قاعدة البيانات (${describeDataError(saved.error || 'unknown', isArabic)}) — مفيش كود اتعمل.`
+          : `❌ The code was not saved (${describeDataError(saved.error || 'unknown', false)}) — nothing was created.`
       );
+      return;
     }
+    setActivationCodes(prev => [newCode, ...prev.filter(c => c.id !== newCode.id)]);
 
     // Log the creation in Audit Trail
     const newAuditLog: AuditLog = {
@@ -611,7 +643,15 @@ export const App: React.FC = () => {
 
   // Revoke Activation Code Handler
   const handleRevokeCode = async (codeId: string) => {
-    await revokeActivationCode(codeId);
+    const result = await revokeActivationCode(codeId);
+    if (!result.ok) {
+      showToast(
+        isArabic
+          ? `❌ تعذّر إلغاء الكود (${describeDataError(result.error || 'unknown', isArabic)})`
+          : `❌ Could not revoke the code (${describeDataError(result.error || 'unknown', false)})`
+      );
+      return;
+    }
     setActivationCodes(prev => prev.map(c => c.id === codeId ? { ...c, status: 'Revoked' } : c));
     showToast(isArabic ? 'تم إلغاء تفعيل الكود بنجاح.' : 'Code revoked successfully.');
   };
@@ -660,11 +700,18 @@ export const App: React.FC = () => {
             : `Could not save the activation (${saved.error}).`
         };
       }
-      await markCodeRedeemed(cleanCode, {
+      const marked = await markCodeRedeemed(cleanCode, {
         id: updatedStudent.id,
         studentId: updatedStudent.studentId,
         fullName: updatedStudent.fullName
       });
+      if (!marked.ok) {
+        showToast(
+          isArabic
+            ? `⚠️ تم تجديد الباقة بس الكود ما اتعلّمش «مستخدم» (${marked.error}).`
+            : `⚠️ Plan renewed but the code was not marked as redeemed (${marked.error}).`
+        );
+      }
       setStudents(prev => prev.map(s => (s.id === updatedStudent.id ? updatedStudent : s)));
       setCurrentStudent(updatedStudent);
       setActiveTab('student_dashboard');
@@ -705,11 +752,7 @@ export const App: React.FC = () => {
     // 1) الحفظ في قاعدة البيانات المشتركة الأول (المصدر الوحيد)
     const saved = await upsertStudent(updatedStudent);
     if (!saved.ok) {
-      setDataError(
-        isArabic
-          ? `فشل حفظ تعديلات الطالب: ${saved.error}.`
-          : `Saving the student's edits failed: ${saved.error}.`
-      );
+      setDataError(describeDataError(saved.error || 'unknown', isArabic));
       showToast(
         isArabic
           ? `❌ لم يتم حفظ التعديلات (${saved.error}) — مفيش أي حاجة اتغيرت.`
@@ -872,6 +915,10 @@ export const App: React.FC = () => {
   const handleResetAllData = async () => {
     const keepUid = session?.uid || '';
     const report = await resetAllAppData(keepUid);
+
+    // لو مفيش أي أدمن متبقي، لازم نفتح نافذة التهيئة تاني عشان تقدر تصنع واحد
+    const adminsLeft = await countAdmins().catch(() => 1);
+    if (adminsLeft === 0) await reconcileBootstrapFlag().catch(() => undefined);
 
     if (report.ok) {
       setStudents([]);
@@ -1036,8 +1083,8 @@ export const App: React.FC = () => {
     if (!saved.ok) {
       showToast(
         isArabic
-          ? `⚠️ تعذّر حفظ التعديلات في قاعدة البيانات (${saved.error}).`
-          : `⚠️ Could not save your changes (${saved.error}).`
+          ? `⚠️ تعذّر حفظ التعديلات: ${describeDataError(saved.error || 'unknown', true)}`
+          : `⚠️ Could not save your changes: ${describeDataError(saved.error || 'unknown', false)}`
       );
       return;
     }
@@ -1083,10 +1130,19 @@ export const App: React.FC = () => {
     if (!saved.ok) {
       showToast(
         isArabic
-          ? `⚠️ تعذّر حفظ الخطة في قاعدة البيانات (${saved.error}).`
-          : `⚠️ Could not save the plan to the database (${saved.error}).`
+          ? `⚠️ تعذّر حفظ الخطة: ${describeDataError(saved.error || 'unknown', true)}`
+          : `⚠️ Could not save the plan: ${describeDataError(saved.error || 'unknown', false)}`
       );
       return;
+    }
+    // تأكيد فعلي من السيرفر إن الخطة اتحفظت
+    const verified = await getStudentFromServer(updated.id);
+    if (!verified?.generatedPlan) {
+      showToast(
+        isArabic
+          ? '⚠️ السيرفر مارجّعش الخطة بعد الحفظ — جرّب تحديث الصفحة.'
+          : '⚠️ The server did not return the plan after saving — try refreshing.'
+      );
     }
 
     setCurrentStudent(updated);
@@ -1252,12 +1308,6 @@ export const App: React.FC = () => {
         onToggleLanguage={toggleLanguage}
         onUpdateStudent={handleUpdateStudentProfile}
         onSavePlan={handleSaveGeneratedPlan}
-        onUploadBookFile={(file, bookId) =>
-          currentStudent ? uploadBook(currentStudent.id, bookId, file) : Promise.resolve(null)
-        }
-        onDeleteBookFile={deleteBookFile}
-        onOpenBookFile={getBookFileUrl}
-        bookStorageBackend={storageBackend}
       />
     );
   }

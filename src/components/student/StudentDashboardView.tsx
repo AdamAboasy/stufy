@@ -47,14 +47,6 @@ interface StudentDashboardViewProps {
   onUpdateStudent?: (updated: Student) => void;
   /** baseStudent: أحدث نسخة من الملف (لو فيه تعديل لسه مش ظاهر في الـ state) */
   onSavePlan?: (plan: GeneratedPlan, baseStudent?: Student) => void;
-  /** رفع ملف الكتاب على Firebase Storage */
-  onUploadBookFile?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
-  /** حذف ملف كتاب من التخزين */
-  onDeleteBookFile?: (storagePath?: string) => Promise<void>;
-  /** فتح الملف (Storage مباشرة أو تجميع شرائح Firestore) */
-  onOpenBookFile?: (storagePath?: string) => Promise<string | null>;
-  /** الوسيلة المستخدمة لتخزين الكتب */
-  bookStorageBackend?: 'storage' | 'firestore';
 }
 
 type SubTab = 'home' | 'plan' | 'books' | 'exam' | 'settings' | 'devices';
@@ -74,10 +66,6 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   onToggleLanguage,
   onUpdateStudent,
   onSavePlan,
-  onUploadBookFile,
-  onDeleteBookFile,
-  onOpenBookFile,
-  bookStorageBackend = 'firestore'
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('home');
   const [showBuilder, setShowBuilder] = useState(false);
@@ -126,7 +114,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   };
 
   const handleCreatePlan = (book: BookPdf, generated: GeneratedPlan) => {
-    if (!onUpdateStudent || !onSavePlan) return;
+    if (!onSavePlan) return;
     // 1) register the uploaded book on the student record
     const withBook: Student = {
       ...activeStudent,
@@ -148,8 +136,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
             }
           ]
     };
-    onUpdateStudent(withBook);
-    // 2) build the schedule from the book (بنمرّر الملف المحدّث عشان الكتاب يتحفظ معاه)
+    // حفظ واحد ذرّي: الكتاب + الخطة مع بعض (بدل كتابة تمسح التانية)
     onSavePlan(generated, withBook);
     setShowBuilder(false);
     setActiveSubTab('plan');
@@ -169,11 +156,6 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   const handleDeleteBook = (book: BookPdf) => {
     if (!onUpdateStudent) return;
 
-    // امسح ملف الـ PDF من Firebase Storage كمان
-    if (book.storagePath && onDeleteBookFile) {
-      onDeleteBookFile(book.storagePath);
-    }
-
     // لو الخطة الحالية مبنية على الكتاب ده، بنمسح الخطة مع الكتاب
     const planUsesBook = plan?.bookId === book.id;
     onUpdateStudent({
@@ -188,23 +170,6 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
         ? (isArabic ? 'تم حذف الكتاب والخطة المرتبطة به.' : 'Book and its linked plan were deleted.')
         : (isArabic ? 'تم حذف الكتاب.' : 'Book deleted.')
     );
-  };
-
-  const [openingBookId, setOpeningBookId] = useState<string | null>(null);
-
-  const handleOpenBook = async (pdf: BookPdf) => {
-    if (!onOpenBookFile || !pdf.storagePath) return;
-    setOpeningBookId(pdf.id);
-    try {
-      const url = await onOpenBookFile(pdf.storagePath);
-      if (url) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      } else {
-        flash(isArabic ? 'تعذّر فتح الملف. جرّب ترفعه تاني.' : 'Could not open the file. Try re-uploading.');
-      }
-    } finally {
-      setOpeningBookId(null);
-    }
   };
 
   const handleDeletePlan = () => {
@@ -767,14 +732,14 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-blue text-white text-[11px] font-bold"
               >
                 <PlusCircle className="w-4 h-4" />
-                {isArabic ? 'ارفع كتاب' : 'Upload'}
+                {isArabic ? 'أضف كتاب' : 'Add book'}
               </button>
             </div>
 
             {(!student.uploadedPdfs || student.uploadedPdfs.length === 0) ? (
               <div className="glass-panel rounded-3xl border border-slate-800 p-8 text-center space-y-3">
                 <FileText className="w-10 h-10 text-slate-600 mx-auto" />
-                <p className="text-xs text-slate-400">{isArabic ? 'لسه ما رفعتش أي كتاب.' : 'No books uploaded yet.'}</p>
+                <p className="text-xs text-slate-400">{isArabic ? 'لسه ما أضفتش أي كتاب.' : 'No books added yet.'}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -798,7 +763,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-slate-400">
                       <span>{pdf.pageCount} {isArabic ? 'صفحة' : 'pages'}</span>
-                      <span>{pdf.fileSizeMb} MB</span>
+                      <span>{new Date(pdf.uploadDate).toLocaleDateString(isArabic ? 'ar-EG' : 'en-GB')}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
@@ -807,24 +772,12 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                       >
                         {isArabic ? 'تفاصيل' : 'Details'}
                       </button>
-                      {pdf.storagePath ? (
-                        <button
-                          onClick={() => handleOpenBook(pdf)}
-                          disabled={openingBookId === pdf.id}
-                          className="py-2 rounded-xl bg-emerald-950/50 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 text-center disabled:opacity-60"
-                        >
-                          {openingBookId === pdf.id
-                            ? (isArabic ? 'جاري الفتح...' : 'Opening...')
-                            : (isArabic ? 'فتح الملف' : 'Open file')}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setShowBuilder(true)}
-                          className="py-2 rounded-xl bg-brand-purple/20 text-brand-purple-light text-[11px] font-bold border border-brand-purple/30"
-                        >
-                          {isArabic ? 'خطة' : 'Plan'}
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setShowBuilder(true)}
+                        className="py-2 rounded-xl bg-brand-purple/20 text-brand-purple-light text-[11px] font-bold border border-brand-purple/30"
+                      >
+                        {isArabic ? 'خطة من الكتاب' : 'Plan from book'}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1003,8 +956,6 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           isArabic={isArabic}
           onCancel={() => setShowBuilder(false)}
           onSubmit={handleCreatePlan}
-          onUpload={onUploadBookFile}
-          storageBackend={bookStorageBackend}
         />
       )}
 

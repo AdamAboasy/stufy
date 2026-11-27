@@ -137,6 +137,22 @@ export const setStaffRole = async (
 };
 
 /**
+ * هل فيه أي دور إدارة مسجّل في staff؟
+ * (بيقرأ قائمة الموظفين — للسوبر أدمن؛ ولغير المسجّل بترجع false بأمان)
+ */
+export const countAdmins = async (): Promise<number> => {
+  try {
+    const snapshot = await getDocs(query(collection(db, COLLECTIONS.staff), limit(200)));
+    return snapshot.docs.filter(d => {
+      const role = (d.data() as { role?: UserRole }).role;
+      return role === 'SUPER_ADMIN' || role === 'STUDENT_ADMIN';
+    }).length;
+  } catch {
+    return 0;
+  }
+};
+
+/**
  * هل تم إنهاء تهيئة أول أدمن؟
  * بنقرأ مستند `appMeta/bootstrap` (قراءة عامة مسموحة) بدل قراءة قائمة الموظفين
  * عشان إيميلات الإدارة تفضل خاصة.

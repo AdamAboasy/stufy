@@ -17,6 +17,8 @@ import {
   writeBatch,
   doc,
   deleteDoc,
+  setDoc,
+  serverTimestamp,
   type QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
@@ -127,15 +129,40 @@ export const resetAllAppData = async (keepUid: string): Promise<ResetReport> => 
 };
 
 /**
- * إعادة فتح «نافذة التهيئة» بعد تصفير شامل.
- * الافتراضي إنها **مقفولة** (مستند موجود) — بنمسحه عشان تقدر تعمل أول
- * سوبر أدمن من جديد. استخدمها بس بعد ما تمسح الـ Authentication users كمان.
+ * إعادة ضبط «مؤشر التهيئة».
+ *
+ * المشكلة اللي بيحلها: مؤشر `appMeta/bootstrap` بيقفل نافذة إنشاء أول أدمن
+ * للأبد. لو مسحت كل البيانات (أو حسابات Auth) بقى التطبيق عالق: مفيش أدمن
+ * ومفيش طريقة تعمل واحد. الدالة دي بتخلي المؤشر يطابق الواقع:
+ * موجود = فيه أدوار إدارة فعلاً في staff، مش موجود = مفيش.
  */
-export const reopenBootstrap = async (): Promise<boolean> => {
+export const reconcileBootstrapFlag = async (): Promise<{
+  adminCount: number;
+  flagWritten: boolean;
+}> => {
+  const staffSnap = await getDocs(collection(db, COLLECTIONS.staff));
+  const adminCount = staffSnap.docs.filter(d => {
+    const role = (d.data() as { role?: string }).role;
+    return role === 'SUPER_ADMIN' || role === 'STUDENT_ADMIN';
+  }).length;
+
+  const flagRef = doc(db, COLLECTIONS.meta, 'bootstrap');
+
+  if (adminCount > 0) {
+    // فيه أدوار ⇒ النافذة مقفولة
+    try {
+      await setDoc(flagRef, { initialized: true, initializedAt: serverTimestamp() }, { merge: true });
+      return { adminCount, flagWritten: true };
+    } catch {
+      return { adminCount, flagWritten: false };
+    }
+  }
+
+  // مفيش أي أدمن ⇒ لازم النافذة تتفتح عشان تقدر تصنع واحد
   try {
-    await deleteDoc(doc(db, COLLECTIONS.meta, 'bootstrap'));
-    return true;
+    await deleteDoc(flagRef);
+    return { adminCount, flagWritten: true };
   } catch {
-    return false;
+    return { adminCount, flagWritten: false };
   }
 };
