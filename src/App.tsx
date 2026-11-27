@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan, StudyProfile } from './types';
 import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
@@ -64,6 +64,24 @@ import {
   CloudOff
 } from 'lucide-react';
 
+/* ============================================================
+   حفظ موضع الصفحة والتبويب عبر الريفريش
+   sessionStorage بيتمسح لوحة المتصفح نفسها، فالتطبيق بيرجع
+   لنفس الحتة (تبويب + موضع تمرير) بعد الفريش بس — مش بعد إغلاق التبويب.
+   ============================================================ */
+const UI_STATE_KEY = 'ssp_ui_state';
+type SavedUiState = { tab: ViewTab; y: number };
+const readSavedUiState = (): SavedUiState | null => {
+  try {
+    const raw = sessionStorage.getItem(UI_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedUiState;
+    return parsed && typeof parsed.tab === 'string' && typeof parsed.y === 'number' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
 export const App: React.FC = () => {
   // Global App & Language State
   const [isArabic, setIsArabic] = useState<boolean>(true);
@@ -82,6 +100,14 @@ export const App: React.FC = () => {
 
   // Active View Tab: Defaults to 'login' if not authenticated as admin
   const [activeTab, setActiveTab] = useState<ViewTab>('login');
+  const activeTabRef = useRef<ViewTab>('login');
+  const [studentDocLoaded, setStudentDocLoaded] = useState(false);
+  // آخر تبويب وموضع تمرير قبل الريفريش (بيتقرا مرة واحدة عند التركيب)
+  const savedUiRef = useRef<SavedUiState | null | undefined>(undefined);
+  if (savedUiRef.current === undefined) savedUiRef.current = readSavedUiState();
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
 
   /* ============================================================
      DATA LAYER — Firestore is the ONLY source of truth.
@@ -147,9 +173,30 @@ export const App: React.FC = () => {
     const unsubscribe = watchSession(next => {
       setSession(next);
       setAuthReady(true);
-      if (next) {
-        setActiveTab(prev => (prev === 'login' ? 'students' : prev));
+
+      if (!next) {
+        // مفيش جلسة ⇒ نرجع صفحة الدخول (إلا لو صفحة التفعيل مفتوحة)
+        setActiveTab(prev => (prev === 'activation_page' ? prev : 'login'));
+        return;
       }
+
+      // نرجّع آخر تبويب كان مفتوح قبل الريفريش — مع التحقق من الدور
+      const isAdmin = isAdminRole(next.role);
+      setActiveTab(prev => {
+        if (prev !== 'login') return prev; // المستخدم فتح حاجة بنفسه قبل ما الجلسة ترجع
+        const saved = savedUiRef.current?.tab;
+        let restored: ViewTab | null = null;
+        if (saved && saved !== 'login') {
+          if (saved === 'activation_page' || saved === 'student_dashboard') {
+            restored = saved;
+          } else if (saved === 'delete_students') {
+            restored = next.role === 'SUPER_ADMIN' ? 'delete_students' : isAdmin ? 'students' : null;
+          } else if (isAdmin) {
+            restored = saved; // students / code_generator / audit_logs
+          }
+        }
+        return restored || (isAdmin ? 'students' : 'student_dashboard');
+      });
     });
     return () => unsubscribe();
   }, []);
@@ -162,6 +209,7 @@ export const App: React.FC = () => {
     const studentDocId = session?.studentId || session?.uid || localStorage.getItem('ssp_student_id');
     if (!studentDocId) return;
 
+    setStudentDocLoaded(false);
     return subscribeStudentById(
       studentDocId,
       student => {
@@ -172,8 +220,12 @@ export const App: React.FC = () => {
           setCurrentStudent(null);
           localStorage.removeItem('ssp_student_id');
         }
+        setStudentDocLoaded(true);
       },
-      error => console.warn('[students] own-document listener', error)
+      error => {
+        console.warn('[students] own-document listener', error);
+        setStudentDocLoaded(true);
+      }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, session?.uid]);
@@ -191,6 +243,62 @@ export const App: React.FC = () => {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [passwordResetStudent, setPasswordResetStudent] = useState<Student | null>(null);
   const [supportModeStudent, setSupportModeStudent] = useState<Student | null>(null);
+
+  // نحفظ التبويب وموضع التمرير قبل ما الصفحة تقفل (ريفريش/إغلاق)
+  useEffect(() => {
+    const save = () => {
+      try {
+        sessionStorage.setItem(
+          UI_STATE_KEY,
+          JSON.stringify({ tab: activeTabRef.current, y: window.scrollY } satisfies SavedUiState)
+        );
+      } catch {
+        /* غير متفق — نتجاهل */
+      }
+    };
+    window.addEventListener('pagehide', save);
+    window.addEventListener('beforeunload', save);
+    return () => {
+      window.removeEventListener('pagehide', save);
+      window.removeEventListener('beforeunload', save);
+    };
+  }, []);
+
+  // نرجّع موضع التمرير بتاع نفس التبويب بعد الريفريش، ونبتدي من فوق عند أي تبديل
+  useEffect(() => {
+    const saved = savedUiRef.current;
+    const restoreY = saved && saved.tab === activeTab ? saved.y : 0;
+    if (restoreY > 0) savedUiRef.current = null; // نستهلكه مرة واحدة
+    const tryRestore = () => {
+      if (restoreY <= 0) return false;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      if (maxScroll < restoreY) return false; // المحتوى لسه قصير (البيانات لسه ما وصلتش)
+      window.scrollTo(0, restoreY);
+      return window.scrollY >= restoreY - 1;
+    };
+
+    const raf = requestAnimationFrame(() => {
+      if (restoreY <= 0) window.scrollTo(0, 0);
+      else tryRestore();
+    });
+
+    // Firestore ممكن يتأخر عن الرسم — بنحاول كذا مرة طول ما المحتوى مقصر
+    const timers: number[] = [];
+    if (restoreY > 0) {
+      [450, 1000, 1800].forEach(ms => {
+        timers.push(
+          window.setTimeout(() => {
+            if (window.scrollY < restoreY - 1) tryRestore();
+          }, ms)
+        );
+      });
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      timers.forEach(timer => window.clearTimeout(timer));
+    };
+  }, [activeTab]);
 
   // Toast Notification
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1185,6 +1293,15 @@ export const App: React.FC = () => {
   if (activeTab === 'student_dashboard') {
     const activeStudentObj = currentStudent || students[0];
     if (!activeStudentObj) {
+      // الجلسة رجعت بس ملف الطالب لسه بيتحمّل — مبنعرضش صفحة دخول كأنه خرج
+      if (authReady && session && !isAdminRole(session?.role) && !studentDocLoaded) {
+        return (
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-3 text-slate-400">
+            <div className="w-10 h-10 rounded-full border-2 border-brand-blue-electric border-t-transparent animate-spin" />
+            <p className="text-xs font-semibold">{isArabic ? 'جاري فتح صفحتك…' : 'Opening your page…'}</p>
+          </div>
+        );
+      }
       return (
         <LoginPage
           isArabic={isArabic}

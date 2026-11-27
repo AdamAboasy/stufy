@@ -36,6 +36,7 @@ ok('no admin-registration UI', !login.includes('setupMode') && !auth.includes('c
 ok('wipe clears localStorage keys', wipe.includes("startsWith('ssp_')"));
 ok('delete-all button label', panel.includes('حذف كل البيانات'));
 ok('rules allow auditLogs delete by super admin', /match \/auditLogs[\s\S]{0,400}allow delete: if isSuperAdmin\(\)/.test(rules));
+ok('refresh restores tab + scroll', app.includes("UI_STATE_KEY = 'ssp_ui_state'") && app.includes('beforeunload') && app.includes('restoreY'));
 ok('no storage import anywhere', !read('src/lib/firebase.ts').includes("from 'firebase/storage'"));
 ok('no BOOKS_STORAGE_PATH', !firebase.includes('BOOKS_STORAGE_PATH'));
 ok('no mock data file', !(() => { try { read('src/data/mockData.ts'); return true; } catch { return false; } })());
