@@ -1,5 +1,5 @@
 /**
- * Firebase bootstrap (Firestore + Storage + Analytics)
+ * Firebase bootstrap (Firestore + Auth + Analytics — بدون Storage)
  * ----------------------------------------------------
  * الإعدادات بتُقرأ من متغيّرات البيئة (VITE_FIREBASE_*) مع fallback
  * على إعدادات المشروع الرسمية، فالتطبيق بيشتغل بدون أي خطوة إعداد.
@@ -24,7 +24,6 @@ export const firebaseConfig = {
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || 'study-managment-45332.firebaseapp.com',
   databaseURL: env.VITE_FIREBASE_DATABASE_URL || 'https://study-managment-45332-default-rtdb.firebaseio.com',
   projectId: env.VITE_FIREBASE_PROJECT_ID || 'study-managment-45332',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || 'study-managment-45332.firebasestorage.app',
   messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '823484662664',
   appId: env.VITE_FIREBASE_APP_ID || '1:823484662664:web:424b2c3c15a0cc6a5bb03d',
   measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || 'G-JZHNEJF9RG'
@@ -77,10 +76,12 @@ export const COLLECTIONS = {
   students: 'students',
   auditLogs: 'auditLogs',
   activationCodes: 'activationCodes',
+  /** بقايا قديمة من زمن رفع الملفات — بتتمسح في «حذف كل البيانات» بس */
   bookFiles: 'bookFiles',
   staff: 'staff',
   meta: 'appMeta'
 } as const;
-
-/** Storage folder for uploaded books */
-export const BOOKS_STORAGE_PATH = 'books';
+/*
+ * ملاحظة: Firebase Storage **مش مستخدم خالص** (بفلوس وبدون Blaze).
+ * مفيش أي import لـ firebase/storage في المشروع، و`storage.rules` بيقفل كل المسارات.
+ */

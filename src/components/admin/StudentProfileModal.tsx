@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Student, RegisteredDevice, BookPdf, Subject, StudyPlan, DailyTask, RevisionRound, ActivationHistoryItem } from '../../types';
+import { Student, RegisteredDevice, Subject, StudyPlan, DailyTask, RevisionRound, ActivationHistoryItem } from '../../types';
 import { 
   X, 
   User, 
@@ -40,7 +40,6 @@ interface StudentProfileModalProps {
   onGeneratePasswordReset: (student: Student) => void;
   onDeleteStudent?: (student: Student) => void;
   onToggleStudentAdmin?: (student: Student) => void;
-  onDeleteBook?: (student: Student, bookId: string) => void;
 }
 
 export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
@@ -53,10 +52,8 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   onRevokeDevice,
   onGeneratePasswordReset,
   onDeleteStudent,
-  onToggleStudentAdmin,
-  onDeleteBook
+  onToggleStudentAdmin
 }) => {
-  const [bookToDelete, setBookToDelete] = useState<BookPdf | null>(null);
   const [activeTab, setActiveTab] = useState<number>(1);
   const [copiedToken, setCopiedToken] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -66,7 +63,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const tabs = [
     { id: 1, key: 'personal', nameAr: '1. البيانات الشخصية', nameEn: '1. Personal Info', icon: User },
     { id: 2, key: 'academic', nameAr: '2. السنة والمواد', nameEn: '2. Academic & Subjects', icon: GraduationCap },
-    { id: 3, key: 'pdfs', nameAr: '3. الكتب وPDF المحللة', nameEn: '3. Uploaded PDFs', icon: BookOpen },
+    { id: 3, key: 'curriculum', nameAr: '3. المنهج والجدول', nameEn: '3. Curriculum & Schedule', icon: BookOpen },
     { id: 4, key: 'curriculum', nameAr: '4. الفصول والدروس', nameEn: '4. Chapters & Lessons', icon: ListTree },
     { id: 5, key: 'plans', nameAr: '5. خطط المذاكرة', nameEn: '5. Study Plans', icon: CalendarRange },
     { id: 6, key: 'tasks', nameAr: '6. المهام اليومية', nameEn: '6. Daily Tasks', icon: CheckSquare },
@@ -326,62 +323,91 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: Uploaded PDFs & Analyzed Books */}
+          {/* TAB 3: Curriculum & Schedule (منهج السنة والجدول الموزّع) */}
           {activeTab === 3 && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-300">
-                  {isArabic ? `الكتب والملفات المرفوعة (${student.uploadedPdfs.length})` : `Uploaded Textbooks & PDFs (${student.uploadedPdfs.length})`}
-                </h3>
-              </div>
-
-              {student.uploadedPdfs.length === 0 ? (
+              {!student.studyProfile ? (
                 <div className="text-center py-12 text-slate-500 text-sm">
-                  {isArabic ? 'لا توجد ملفات PDF مرفوعة لهذا الطالب حتى الآن.' : 'No uploaded PDFs for this student yet.'}
+                  {isArabic
+                    ? 'الطالب لسه ما اختارش سنته ولا وصف يومه — الجدول بيتبني أول ما يدخل.'
+                    : 'The student has not picked a year / described their day yet.'}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {student.uploadedPdfs.map((pdf) => (
-                    <div key={pdf.id} className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex items-start gap-3">
-                        <div className="p-3 rounded-xl bg-red-950/60 text-red-400 border border-red-500/30 shrink-0">
-                          <FileText className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-white">{pdf.title}</h4>
-                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-1">
-                            <span className="text-brand-blue-light">{pdf.subject}</span>
-                            <span>•</span>
-                            <span>{pdf.pageCount} {isArabic ? 'صفحة' : 'pages'}</span>
-                            <span>•</span>
-                            <span>{pdf.fileSizeMb} MB</span>
-                            <span>•</span>
-                            <span>{new Date(pdf.uploadDate).toLocaleDateString()}</span>
-                          </div>
-                          <p className="text-xs text-slate-300 mt-2 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                            <span className="font-semibold text-emerald-400">{isArabic ? 'الملخص الذكي: ' : 'AI Concept Summary: '}</span>
-                            {pdf.analyzedSummary}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-500/30">
-                          {pdf.keyConceptsCount} {isArabic ? 'مفهوم مستخرج' : 'AI Concepts'}
-                        </span>
-                        {onDeleteBook && (
-                          <button
-                            onClick={() => setBookToDelete(pdf)}
-                            title={isArabic ? 'حذف هذا الكتاب' : 'Delete this book'}
-                            className="p-2 rounded-xl bg-red-950/60 hover:bg-red-900/70 text-red-300 border border-red-500/30 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
+                    <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                      <div className="text-slate-400">{isArabic ? 'السنة' : 'Year'}</div>
+                      <div className="font-bold text-white mt-0.5 truncate">
+                        {isArabic ? student.studyProfile.academicYearAr : student.studyProfile.academicYear}
                       </div>
                     </div>
-                  ))}
-                </div>
+                    <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                      <div className="text-slate-400">{isArabic ? 'ساعات/يوم' : 'Hours/day'}</div>
+                      <div className="font-bold text-brand-blue-electric mt-0.5">{student.studyProfile.dailyHours}</div>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                      <div className="text-slate-400">{isArabic ? 'أيام الراحة' : 'Days off'}</div>
+                      <div className="font-bold text-amber-300 mt-0.5">
+                        {student.studyProfile.daysOff.length || (isArabic ? 'بدون' : 'none')}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800">
+                      <div className="text-slate-400">{isArabic ? 'الامتحان' : 'Exam'}</div>
+                      <div className="font-bold text-purple-300 mt-0.5 font-mono">{student.studyProfile.examDate}</div>
+                    </div>
+                  </div>
+
+                  {student.studyProfile.routineNotes && (
+                    <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 leading-relaxed">
+                      <span className="font-bold text-slate-200">{isArabic ? 'روتين الطالب: ' : 'Routine: '}</span>
+                      {student.studyProfile.routineNotes}
+                    </div>
+                  )}
+
+                  {student.generatedPlan ? (
+                    <>
+                      <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-white truncate">{student.generatedPlan.bookTitle}</div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            {student.generatedPlan.chapters.length} {isArabic ? 'باب' : 'topics'} •{' '}
+                            {student.generatedPlan.sessions.length} {isArabic ? 'جلسة' : 'sessions'} •{' '}
+                            {student.generatedPlan.rounds.length} {isArabic ? 'جولة مراجعة' : 'revision rounds'}
+                          </div>
+                        </div>
+                        <span className="text-xs font-black text-brand-blue-electric shrink-0">
+                          {Math.round(
+                            (student.generatedPlan.sessions.filter(x => x.isCompleted).length /
+                              Math.max(1, student.generatedPlan.sessions.length)) *
+                              100
+                          )}
+                          %
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                        {student.generatedPlan.sessions.slice(0, 60).map(session => (
+                          <div
+                            key={session.id}
+                            className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between gap-2 text-[11px]"
+                          >
+                            <div className="min-w-0 flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${session.isCompleted ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                              <span className={`truncate ${session.isCompleted ? 'text-slate-400 line-through' : 'text-slate-200'}`}>
+                                {isArabic ? session.titleAr : session.title}
+                              </span>
+                            </div>
+                            <span className="font-mono text-slate-500 shrink-0">{session.date}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500 text-sm">
+                      {isArabic ? 'الجدول لسه ما اتبناش للطالب.' : 'No schedule built for this student yet.'}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -704,40 +730,6 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
           )}
 
         </div>
-
-        {/* Delete Book Confirmation Overlay */}
-        {bookToDelete && onDeleteBook && (
-          <div className="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-red-500/40 p-5 space-y-4">
-              <div className="flex items-center gap-2 text-red-400">
-                <AlertTriangle className="w-6 h-6" />
-                <h4 className="font-bold text-white">{isArabic ? 'تأكيد حذف الكتاب' : 'Confirm book deletion'}</h4>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed break-words">
-                {isArabic
-                  ? `سيتم حذف كتاب (${bookToDelete.title}) من حساب الطالب (${student.fullNameAr || student.fullName}) نهائياً وسيتم توثيق العملية في سجل التدقيق.`
-                  : `Book (${bookToDelete.title}) will be removed from ${student.fullName}'s account permanently and the action will be logged in the audit trail.`}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setBookToDelete(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold"
-                >
-                  {isArabic ? 'إلغاء' : 'Cancel'}
-                </button>
-                <button
-                  onClick={() => {
-                    onDeleteBook(student, bookToDelete.id);
-                    setBookToDelete(null);
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold"
-                >
-                  {isArabic ? 'حذف نهائي' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Delete Confirmation Overlay */}
         {confirmDelete && onDeleteStudent && (

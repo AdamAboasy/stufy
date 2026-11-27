@@ -41,7 +41,9 @@ export const StudentSettings: React.FC<StudentSettingsProps> = ({
   const [phoneNumber, setPhoneNumber] = useState(student.phoneNumber);
   const [gender, setGender] = useState<Gender>(student.gender || 'male');
   const [stageId, setStageId] = useState(
-    ACADEMIC_STAGES.find(s => s.labelAr === student.academicYearAr || s.labelEn === student.academicYear)?.id || 'sec-3'
+    student.curriculumStageId ||
+      ACADEMIC_STAGES.find(s => s.labelAr === student.academicYearAr || s.labelEn === student.academicYear)?.id ||
+      'sec-3'
   );
   const [avatarUrl, setAvatarUrl] = useState(student.avatarUrl);
   const [saved, setSaved] = useState(false);
@@ -88,6 +90,10 @@ export const StudentSettings: React.FC<StudentSettingsProps> = ({
       avatarUrl,
       academicYear: stage?.labelEn || student.academicYear,
       academicYearAr: stage?.labelAr || student.academicYearAr,
+      // تغيير السنة بيلغي الجدول المبني على السنة القديمة (لازم إعادة توزيع)
+      curriculumStageId: stageId,
+      generatedPlan: student.curriculumStageId === stageId ? student.generatedPlan : null,
+      studyProfile: student.curriculumStageId === stageId ? student.studyProfile : null,
       lastActivity: new Date().toISOString()
     };
 

@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan } from './types';
+import { Student, AuditLog, ViewTab, UserRole, GeneratedActivationCode, SubscriptionPlan, Gender, GeneratedPlan, StudyProfile } from './types';
 import { findAcademicStage } from './data/academicStages';
 import { Logo } from './components/brand/Logo';
 import { StudentMonitoring } from './components/admin/StudentMonitoring';
 import { StudentDeletionPanel } from './components/admin/StudentDeletionPanel';
-import { SetupAssistant } from './components/admin/SetupAssistant';
 import { ActivationCodeGenerator } from './components/admin/ActivationCodeGenerator';
 import { StudentProfileModal } from './components/admin/StudentProfileModal';
 import { AdminEditModal } from './components/admin/AdminEditModal';
@@ -23,7 +22,6 @@ import {
   findStudentByEmail,
   upsertStudent,
   removeStudent,
-  removeStudentsBatch,
   verifyDeleted,
   forgetLocalStudent,
   type SyncState
@@ -40,7 +38,7 @@ import {
 
 import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
 import { initAnalytics } from './lib/firebase';
-import { resetAllAppData, reconcileBootstrapFlag } from './lib/resetService';
+import { wipeAllAppData } from './lib/wipeService';
 import {
   watchSession,
   adminSignIn,
@@ -451,6 +449,9 @@ export const App: React.FC = () => {
           : 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
       academicYear: findAcademicStage(data.stage)?.labelEn || '3rd Secondary (Thanawya)',
       academicYearAr: findAcademicStage(data.stage)?.labelAr || 'الصف الثالث الثانوي',
+      // السنة اللي اختارها وقت التسجيل — بيبدأ منها المنهج (ويقدر يغيّرها في الإعداد)
+      curriculumStageId: findAcademicStage(data.stage)?.id || 'sec-3',
+      studyProfile: null,
       status: 'Active',
       subscriptionPlan: plan,
       registrationDate: nowIso,
@@ -913,114 +914,59 @@ export const App: React.FC = () => {
      تصفير النظام (Super Admin only) — بداية نظيفة
      ============================================================ */
   const handleResetAllData = async () => {
-    const keepUid = session?.uid || '';
-    const report = await resetAllAppData(keepUid);
+    const report = await wipeAllAppData(isSuperAdmin ? 'SUPER_ADMIN' : 'STUDENT_ADMIN');
 
-    // لو مفيش أي أدمن متبقي، لازم نفتح نافذة التهيئة تاني عشان تقدر تصنع واحد
-    const adminsLeft = await countAdmins().catch(() => 1);
-    if (adminsLeft === 0) await reconcileBootstrapFlag().catch(() => undefined);
+    // بيانات الواجهة تتمسح فوراً — مفيش أي نسخة قديمة بتفضل معروضة
+    setStudents([]);
+    setActivationCodes([]);
+    setAuditLogs([]);
+    setCurrentStudent(null);
+    setSelectedStudent(null);
+    setEditingStudent(null);
+    setSupportModeStudent(null);
+    setStudentsLoaded(true);
 
-    if (report.ok) {
-      setStudents([]);
-      setActivationCodes([]);
-      setAuditLogs([]);
-      setCurrentStudent(null);
-      localStorage.removeItem('ssp_student_id');
-      localStorage.removeItem('ssp_student_email');
-      localStorage.removeItem('ssp_students');
-      localStorage.removeItem('ssp_deleted_ids');
-      localStorage.removeItem('ssp_pending_students');
+    // الحساب نفسه اتمسح ⇒ خروج كامل والتطبيق يقف على صفحة التأسيس
+    if (report.accountDeleted) {
+      setSession(null);
+      setHasAdminAccount(false);
+      setActiveTab('login');
+    } else {
+      // Firebase رفض حذف الحساب (دخول قديم) — الخدمة رجّعت الدور،
+      // فبنعمل خروج ونقفل على صفحة الدخول النضيفة.
+      await adminSignOut().catch(() => undefined);
+      setSession(null);
+      const adminsLeft = await countAdmins().catch(() => 0);
+      setHasAdminAccount(adminsLeft > 0);
+      setActiveTab('login');
     }
 
     const summary = isArabic
-      ? `تم التصفير: ${Object.entries(report.deleted)
+      ? `اتحذف: ${Object.entries(report.deleted)
           .map(([key, value]) => `${key} ${value}`)
-          .join(' • ')}`
-      : `Reset done: ${Object.entries(report.deleted)
+          .join(' • ')}${
+          report.accountDeleted ? ' • حساب الدخول' : ''
+        }`
+      : `Deleted: ${Object.entries(report.deleted)
           .map(([key, value]) => `${key} ${value}`)
-          .join(' • ')}`;
+          .join(' • ')}${report.accountDeleted ? ' • sign-in account' : ''}`;
 
     showToast(
       report.ok
         ? isArabic
-          ? '✅ تم تصفير كل البيانات — تقدر تبدأ من جديد.'
-          : '✅ All data was cleared — you can start fresh.'
+          ? '✅ تم حذف كل البيانات نهائياً — التطبيق رجع لحالة أول مرة.'
+          : '✅ Everything was permanently deleted — the app is back to its first-run state.'
         : isArabic
-        ? '⚠️ التصفير خلص لكن فيه عناصر فشلت — شوف التفاصيل.'
-        : '⚠️ Reset finished but some items failed — see details.'
+        ? '⚠️ تم الحذف لكن فيه عناصر فشلت — شوف التفاصيل.'
+        : '⚠️ Deletion finished but some items failed — see details.'
     );
 
     return { ok: report.ok, summary, errors: report.errors };
   };
 
   /* ============================================================
-     Cleanup: delete every student flagged as "test" at once
-     ============================================================ */
-  const handleBulkDeleteTestStudents = async (list: Student[]) => {
-    if (list.length === 0) return;
-    const removed = await removeStudentsBatch(list);
-    if (removed > 0) {
-      setStudents(prev => prev.filter(s => !list.slice(0, removed).some(d => d.id === s.id)));
-      list.forEach(st => forgetLocalStudent(st.id));
-    }
-    if (removed < list.length) {
-      setDataError(
-        isArabic
-          ? `تم حذف ${removed} من ${list.length}. الباقي فشل بسبب الصلاحيات — راجع قواعد Firestore.`
-          : `Deleted ${removed} of ${list.length}. The rest failed due to permissions — check your Firestore rules.`
-      );
-    }
-    showToast(
-      isArabic
-        ? `تم حذف ${removed} طالب من السحابة نهائياً.`
-        : `${removed} student(s) permanently deleted from the cloud.`
-    );
-  };
-
-  /* ============================================================
      DELETE A BOOK FROM A STUDENT (Admin) + audit trail
      ============================================================ */
-  const handleDeleteStudentBook = (student: Student, bookId: string) => {
-    const book = student.uploadedPdfs.find(p => p.id === bookId);
-    const planUsesBook = student.generatedPlan?.bookId === bookId;
-
-    const updated: Student = {
-      ...student,
-      uploadedPdfs: student.uploadedPdfs.filter(p => p.id !== bookId),
-      generatedPlan: planUsesBook ? null : student.generatedPlan
-    };
-
-    setStudents(prev => prev.map(s => (s.id === student.id ? updated : s)));
-    syncStudentToCloud(updated);
-    if (selectedStudent && selectedStudent.id === student.id) setSelectedStudent(updated);
-    if (currentStudent && currentStudent.id === student.id) setCurrentStudent(updated);
-    setEditingStudent(prev => (prev && prev.id === student.id ? updated : prev));
-
-    const newAuditLog: AuditLog = {
-      id: `log-book-del-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-ADAM',
-      adminName: 'Adam Sherif (Super Admin)',
-      targetStudentId: student.studentId,
-      studentName: student.fullName,
-      actionSource: 'ADMIN',
-      changedField: 'uploadedPdfs (deletion)',
-      oldValue: book ? `${book.title} (${book.pageCount} pages, ${book.fileSizeMb} MB)` : bookId,
-      newValue: 'Book deleted from student library',
-      reason: planUsesBook
-        ? 'Super Admin deleted the book and its linked study plan'
-        : 'Super Admin deleted the book from the student library',
-      timestamp: new Date().toISOString()
-    };
-    setAuditLogs(prev => [newAuditLog, ...prev]);
-    if (cloudConnected) pushAuditLog(newAuditLog);
-
-    showToast(
-      isArabic
-        ? `تم حذف الكتاب${planUsesBook ? ' والخطة المرتبطة به' : ''} من حساب الطالب وتوثيق العملية.`
-        : `Book${planUsesBook ? ' and its linked plan were' : ' was'} deleted from the student account.`
-    );
-  };
-
   /* ============================================================
      PROMOTE / DEMOTE STUDENT TO ADMIN (Super Admin only)
      ============================================================ */
@@ -1094,7 +1040,11 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSaveGeneratedPlan = async (plan: GeneratedPlan, baseStudent?: Student) => {
+  /**
+   * حفظ إعداد الطالب + الجدول في خطوة واحدة (ملف واحد، كتابة واحدة).
+   * السنة + العادات اليومية + الجدول الكامل الموّزع على المنهج.
+   */
+  const handleSaveSetup = async (profile: StudyProfile, plan: GeneratedPlan, baseStudent?: Student) => {
     const student = baseStudent || currentStudent;
     if (!student) return;
 
@@ -1106,14 +1056,23 @@ export const App: React.FC = () => {
       )
     );
 
+    const stage = findAcademicStage(profile.stageId);
+
     const updated: Student = {
       ...student,
+      curriculumStageId: profile.stageId,
+      academicYear: stage?.labelEn || profile.academicYear,
+      academicYearAr: stage?.labelAr || profile.academicYearAr,
+      studyProfile: profile,
       generatedPlan: plan,
       studyPreferences: {
         examDate: plan.examDate,
         revisionRounds: plan.revisionRounds,
         dailyMinutes: plan.dailyMinutes,
-        daysOff: student.studyPreferences?.daysOff || []
+        daysOff: profile.daysOff,
+        stageId: profile.stageId,
+        routineNotes: profile.routineNotes,
+        subjectIds: profile.subjectIds
       },
       revisionPlanner: {
         targetExamDate: plan.examDate,
@@ -1130,18 +1089,18 @@ export const App: React.FC = () => {
     if (!saved.ok) {
       showToast(
         isArabic
-          ? `⚠️ تعذّر حفظ الخطة: ${describeDataError(saved.error || 'unknown', true)}`
-          : `⚠️ Could not save the plan: ${describeDataError(saved.error || 'unknown', false)}`
+          ? `⚠️ تعذّر حفظ الجدول: ${describeDataError(saved.error || 'unknown', true)}`
+          : `⚠️ Could not save the schedule: ${describeDataError(saved.error || 'unknown', false)}`
       );
       return;
     }
-    // تأكيد فعلي من السيرفر إن الخطة اتحفظت
+    // تأكيد فعلي من السيرفر إن الجدول اتحفظ
     const verified = await getStudentFromServer(updated.id);
-    if (!verified?.generatedPlan) {
+    if (!verified?.generatedPlan || !verified?.studyProfile) {
       showToast(
         isArabic
-          ? '⚠️ السيرفر مارجّعش الخطة بعد الحفظ — جرّب تحديث الصفحة.'
-          : '⚠️ The server did not return the plan after saving — try refreshing.'
+          ? '⚠️ السيرفر مارجّعش الجدول بعد الحفظ — جرّب تحديث الصفحة.'
+          : '⚠️ The server did not return the schedule after saving — try refreshing.'
       );
     }
 
@@ -1154,9 +1113,29 @@ export const App: React.FC = () => {
 
     showToast(
       isArabic
-        ? 'تم بناء خطة المذاكرة والمراجعة من كتابك بنجاح!'
-        : 'Your study & revision plan was built from your book!'
+        ? 'تم توزيع منهج سنتك على أيامك وبناء الجدول الكامل!'
+        : 'Your year’s curriculum was distributed across your days — schedule ready!'
     );
+  };
+
+  /** الحفاظ على الواجهة القديمة اللي بتنادي onSavePlan */
+  const handleSaveGeneratedPlan = async (plan: GeneratedPlan, baseStudent?: Student) => {
+    const student = baseStudent || currentStudent;
+    if (!student) return;
+    const profile: StudyProfile =
+      student.studyProfile || {
+        stageId: student.curriculumStageId || 'sec-3',
+        academicYear: student.academicYear,
+        academicYearAr: student.academicYearAr,
+        dailyHours: Math.max(0.5, Math.round((plan.dailyMinutes / 60) * 10) / 10),
+        daysOff: student.studyPreferences?.daysOff || [],
+        revisionRounds: plan.revisionRounds,
+        examDate: plan.examDate,
+        subjectIds: student.studyPreferences?.subjectIds || [],
+        routineNotes: student.studyPreferences?.routineNotes || '',
+        updatedAt: new Date().toISOString()
+      };
+    await handleSaveSetup(profile, plan, student);
   };
 
   // Password Reset Log Handler
@@ -1307,6 +1286,7 @@ export const App: React.FC = () => {
         }}
         onToggleLanguage={toggleLanguage}
         onUpdateStudent={handleUpdateStudentProfile}
+        onSaveSetup={handleSaveSetup}
         onSavePlan={handleSaveGeneratedPlan}
       />
     );
@@ -1527,18 +1507,6 @@ export const App: React.FC = () => {
 
         {activeTab === 'students' && (
           <div className="space-y-3">
-          <SetupAssistant
-            isArabic={isArabic}
-            studentCount={students.length}
-            codeCount={activationCodes.length}
-            onGoToTab={tab => {
-              if (tab === 'login') {
-                setActiveTab('login');
-                return;
-              }
-              setActiveTab(tab);
-            }}
-          />
           <StudentMonitoring
             students={students}
             isArabic={isArabic}
@@ -1577,7 +1545,6 @@ export const App: React.FC = () => {
             cloudConnected={cloudConnected}
             cloudError={dataError}
             onDeleteStudent={handleDeleteStudent}
-            onBulkDeleteDemo={handleBulkDeleteTestStudents}
             onResetAllData={handleResetAllData}
           />
         )}
@@ -1623,7 +1590,6 @@ export const App: React.FC = () => {
           onRevokeDevice={(studentId: string, deviceId: string) => handleRevokeDevice(studentId, deviceId)}
           onDeleteStudent={isSuperAdmin ? handleDeleteStudent : undefined}
           onToggleStudentAdmin={isSuperAdmin ? handleToggleStudentAdmin : undefined}
-          onDeleteBook={canSeeAdminPanel ? handleDeleteStudentBook : undefined}
         />
       )}
 
