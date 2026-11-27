@@ -43,13 +43,6 @@ service cloud.firestore {
       return !exists(/databases/$(database)/documents/appMeta/bootstrap);
     }
 
-    // «تطبيق جديد تماماً»: مفيش أي أدمن ومفيش مستند التهيئة.
-    // بندعم مستند واحد ثابت `staff/superadmin` كعلامة (مش مستخدم فعلي).
-    function freshApp() {
-      return !exists(/databases/$(database)/documents/appMeta/bootstrap)
-             && !exists(/databases/$(database)/documents/staff/superadmin);
-    }
-
     // ---- Staff (roles) ----
     // المستخدم يقدر يقرأ دوره هو؛ السوبر أدمن يقرأ الكل ويكتب.
     match /staff/{uid} {
@@ -59,7 +52,7 @@ service cloud.firestore {
                     && request.auth.uid == uid
                     && bootstrapOpen()
                     && request.resource.data.role == 'SUPER_ADMIN';
-      // الطالب بيسجّل نفسه STUDENT بعد إنشاء حسابه (التسجيل بيتم من جهاز الإدارة)
+      // الطالب بيربط حسابه بدور STUDENT بعد التسجيل الذاتي
       allow create: if signedIn()
                     && request.auth.uid == uid
                     && !bootstrapOpen()
@@ -81,11 +74,11 @@ service cloud.firestore {
     match /students/{studentId} {
       // الأدمن بيقرأ الكل، والطالب بيقرأ ملفه هو بس
       allow read: if isAdmin() || isSelf(studentId);
-      // التسجيل (create) وتحديث الكود يتم من جهاز الإدارة ⇒ أدمن مسجّل فقط
-      // استثناء وحيد ومحدود: نافذة التأسيس بتسمح بمستند الطالب **اللي معرّفه = uid
-      // بتاعه هو** وبس (مفيش كتابة على ملف حد تاني أثناء التأسيس).
+      // التسجيل الذاتي: أي مستخدم مسجّل يقدر ينشئ **ملفه هو بس** —
+      // المعرّف = uid بتاعه، والـ ownerUid والبريد لازم يطابقوا توكن Auth.
+      // (الأدمن كمان يقدر ينشئ ملفات لأي طالب من جهازه.)
       allow create: if isAdmin()
-                    || (freshApp()
+                    || (signedIn()
                         && studentId == request.auth.uid
                         && request.resource.data.ownerUid == request.auth.uid
                         && request.resource.data.email == request.auth.token.email);
@@ -104,13 +97,23 @@ service cloud.firestore {
     }
 
     // ---- Activation codes ----
-    // `get` مفتوح لقراءة كود واحد (للتحقق أثناء التسجيل) لكن `list` مقفول
-    // عشان محدش يسحب كل الأكواد. الطالب بيعلّم الكود Redeemed بعد التسجيل.
+    // `get` مفتوح (الكود نفسه هو السر — الطالب بيتحقق منه قبل التسجيل)
+    // لكن `list` مقفول عشان محدش يسحب كل الأكواد.
     match /activationCodes/{codeId} {
-      // التسجيل بيتم من جهاز الإدارة ⇒ القراءة للأدمن فقط (مفيش تحقق مجهول)
-      allow read: if isAdmin();
-      allow create, update, delete: if isAdmin();
-      // استهلاك الكود بيتم داخل معاملة من جلسة الإدارة
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      // الاستهلاك: الأدمن بحالته، أو الطالب بيحوّل كوده من Active/Expired إلى
+      // Redeemed ويربطه بنفسه (بدون تغيير خطة/مدة/كود المستند).
+      allow update: if isAdmin()
+                    || (signedIn()
+                        && resource.data.status in ['Active', 'Expired']
+                        && request.resource.data.status == 'Redeemed'
+                        && request.resource.data.redeemedByUid == request.auth.uid
+                        && request.resource.data.code == resource.data.code
+                        && request.resource.data.plan == resource.data.plan
+                        && request.resource.data.durationMonths == resource.data.durationMonths
+                        && request.resource.data.maxDevices == resource.data.maxDevices);
     }
 
     // ملفات الكتب اتشالت من التطبيق (مفيش رفع ملفات) — المجموعات دي مقفولة

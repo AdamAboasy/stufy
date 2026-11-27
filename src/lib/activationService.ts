@@ -153,6 +153,10 @@ export const redeemCodeAndCreateStudent = async (params: {
       if (data.status === 'Redeemed') throw new Error('code-redeemed');
       if (data.status === 'Revoked') throw new Error('code-revoked');
 
+      // الحماية من الكتابة فوق ملف طالب موجود (نفس الإيميل بعد حساب Auth قديم)
+      const studentSnap = await transaction.get(studentRef);
+      if (studentSnap.exists()) throw new Error('student-exists');
+
       transaction.set(studentRef, params.studentData);
       transaction.update(codeRef, {
         status: 'Redeemed',
@@ -168,6 +172,7 @@ export const redeemCodeAndCreateStudent = async (params: {
     if (message === 'code-missing') return { ok: false, error: 'code-missing' };
     if (message === 'code-redeemed') return { ok: false, error: 'code-redeemed' };
     if (message === 'code-revoked') return { ok: false, error: 'code-revoked' };
+    if (message === 'student-exists') return { ok: false, error: 'student-exists' };
     return { ok: false, error: errCode(error) };
   }
 };

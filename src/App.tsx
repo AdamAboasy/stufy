@@ -45,6 +45,7 @@ import {
   adminSignOut,
   sendAdminPasswordReset,
   studentEnsureAccount,
+  deleteCurrentAuthUser,
   studentSignIn,
   linkStudentAccount,
   setStudentAdminRole,
@@ -410,26 +411,21 @@ export const App: React.FC = () => {
   }): Promise<{ success: boolean; error?: string }> => {
     const cleanCode = data.activationCode.trim().toUpperCase();
 
-    // 1) الإيميل لازم يكون فريد على مستوى قاعدة البيانات كلها.
-    //    بنقرأ قائمة الطلاب — مسموح للأدمن فقط، فالتسجيل بيتطلب حساب الإدارة
-    //    (وده مقصود: مفيش تسجيل مجهول).
+    // 1) فحص تفرّد الإيميل على ملفات الطلاب — القراءة دي للأدمن فقط.
+    //    الزائر (طالب بيسجّل من جهازه) مش بيقدر يقرأ القائمة، فالتحقق بيتأجل
+    //    لحساب Firebase Auth (email-already-in-use) وللمعاملة (ملف موجود مسبقاً).
     const byEmail = await findStudentByEmail(data.email);
     if (!byEmail.ok) {
       const code = byEmail.error || 'unknown';
       if (code === 'permission-denied' || code === 'unauthenticated') {
+        // تسجيل ذاتي: نكمل — التفرّد هيتفرض في Auth + المعاملة تحت
+      } else {
         return {
           success: false,
-          error: isArabic
-            ? '❌ لازم تسجّل دخول حساب الإدارة الأول (التسجيل بيتم من جهاز الإدارة) — أو انشر قواعد Firestore الصح.'
-            : '❌ Sign in with the admin account first (registration runs on the admin device) — or publish the correct Firestore rules.'
+          error: describeDataError(code, isArabic)
         };
       }
-      return {
-        success: false,
-        error: describeDataError(code, isArabic)
-      };
-    }
-    if (byEmail.student) {
+    } else if (byEmail.student) {
       return {
         success: false,
         error: isArabic
@@ -437,7 +433,6 @@ export const App: React.FC = () => {
           : '❌ This email is already registered. Try signing in instead.'
       };
     }
-
     // 2) كود التفعيل: من قاعدة البيانات المشتركة (قراءة واحدة موثوقة)
     const codeResult = await getActivationCode(cleanCode);
 
@@ -606,8 +601,14 @@ export const App: React.FC = () => {
             : '❌ The code is not in the database — check it or request a new one.'
           : describeDataError(redeem.error || 'unknown', isArabic);
 
-      // تنظيف: لو الطالب اتعمل في Auth بس مستنده مش اتعمل، منسيبش حساب يتيم
-      await adminSignOut().catch(() => undefined);
+      // تنظيف: لو الحساب اتعمل للتو وفشلت أي خطوة بعده نمسحه فوراً
+      // (مفيش مشكلة recent-login بعد الإنشاء مباشرة) — وإن كان حساب قديم
+      // (الدخول نجح بنفسه) نكتفي بتسجيل الخروج من غير حذف.
+      if (account.created) {
+        await deleteCurrentAuthUser().catch(() => undefined);
+      } else {
+        await adminSignOut().catch(() => undefined);
+      }
       return { success: false, error: message };
     }
 

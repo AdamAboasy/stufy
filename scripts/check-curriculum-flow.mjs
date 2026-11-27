@@ -20,6 +20,7 @@ const panel = read('src/components/admin/StudentDeletionPanel.tsx');
 const rules = read('firestore.rules');
 const firebase = read('src/lib/firebase.ts');
 const login = read('src/components/auth/LoginPage.tsx');
+const activation = read('src/lib/activationService.ts');
 const auth = read('src/lib/authService.ts');
 
 ok('SetupAssistant removed', !app.includes('SetupAssistant') && !app.includes('4 خطوات للتشغيل'));
@@ -36,6 +37,10 @@ ok('no admin-registration UI', !login.includes('setupMode') && !auth.includes('c
 ok('wipe clears localStorage keys', wipe.includes("startsWith('ssp_')"));
 ok('delete-all button label', panel.includes('حذف كل البيانات'));
 ok('rules allow auditLogs delete by super admin', /match \/auditLogs[\s\S]{0,400}allow delete: if isSuperAdmin\(\)/.test(rules));
+ok('self-registration rules open', rules.includes('التسجيل الذاتي') && rules.includes('allow get: if true') && !rules.includes('freshApp'));
+ok('no admin-device-only error', !app.includes('التسجيل بيتم من جهاز الإدارة'));
+ok('transaction guards existing student', activation.includes('student-exists'));
+ok('orphan account cleaned up', app.includes('account.created') && auth.includes('deleteCurrentAuthUser'));
 ok('refresh restores tab + scroll', app.includes("UI_STATE_KEY = 'ssp_ui_state'") && app.includes('beforeunload') && app.includes('restoreY'));
 ok('no storage import anywhere', !read('src/lib/firebase.ts').includes("from 'firebase/storage'"));
 ok('no BOOKS_STORAGE_PATH', !firebase.includes('BOOKS_STORAGE_PATH'));
