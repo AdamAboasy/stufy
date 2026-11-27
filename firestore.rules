@@ -74,10 +74,7 @@ service cloud.firestore {
     match /students/{studentId} {
       // الأدمن بيقرأ الكل، والطالب بيقرأ ملفه هو بس
       allow read: if isAdmin() || isSelf(studentId);
-      // التسجيل الذاتي: الطالب بيكتب مستنده هو بس (id == uid)
-      allow create: if isSelf(studentId)
-                    && request.auth.token.email != null
-                    && request.resource.data.email == request.auth.token.email.lower();
+      // التسجيل (create) وتحديث الكود يتم من جهاز الإدارة ⇒ أدمن مسجّل فقط
       allow create: if isAdmin();
       allow update: if isAdmin() || isSelf(studentId);
       // الحذف للسوبر أدمن فقط — حذف نهائي
@@ -96,31 +93,19 @@ service cloud.firestore {
     // `get` مفتوح لقراءة كود واحد (للتحقق أثناء التسجيل) لكن `list` مقفول
     // عشان محدش يسحب كل الأكواد. الطالب بيعلّم الكود Redeemed بعد التسجيل.
     match /activationCodes/{codeId} {
-      allow get:  if true;
-      // القراءة بالقائمة للأدمن فقط — الطالب بيستخدم get على كود واحد
-      allow list: if isAdmin();
+      // التسجيل بيتم من جهاز الإدارة ⇒ القراءة للأدمن فقط (مفيش تحقق مجهول)
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
-      // استهلاك الكود: تحديث الحالة لـ Redeemed فقط
-      allow update: if signedIn()
-                    && request.resource.data.status == 'Redeemed'
-                    && request.resource.data.code == resource.data.code;
+      // استهلاك الكود بيتم داخل معاملة من جلسة الإدارة
     }
 
-    // ---- Book files (free-plan storage fallback) ----
-    // bookFiles/{fileId} + bookFiles/{fileId}/chunks/{index}
+    // ملفات الكتب اتشالت من التطبيق (مفيش رفع ملفات) — المجموعات دي مقفولة
     match /bookFiles/{fileId} {
-      allow read:   if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
-      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow delete: if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
-      allow update: if signedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
-
+      allow read, write: if false;
       match /chunks/{chunkId} {
-        function parentOwner() {
-          return get(/databases/$(database)/documents/bookFiles/$(fileId)).data.ownerUid;
-        }
-        allow read, create, update, delete: if signedIn()
-                    && (isAdmin() || parentOwner() == request.auth.uid);
+        allow read, write: if false;
       }
     }
+
   }
 }

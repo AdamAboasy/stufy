@@ -30,9 +30,9 @@ export interface BookPdf {
   isIndexed: boolean;
   analyzedSummary: string;
   keyConceptsCount: number;
-  /** رابط الملف على Firebase Storage (لو اترفع فعلياً) */
+  /** @deprecated — الرفع اتشال؛ البيانات وصفية فقط */
   fileUrl?: string;
-  /** مسار الملف داخل Storage - يُستخدم للحذف */
+  /** @deprecated — الرفع اتشال؛ البيانات وصفية فقط */
   storagePath?: string;
 }
 

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فحص صحة النظام — Smart Study Planner</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0b1220; color:#e2e8f0; font:15px/1.8 system-ui,'Segoe UI',Tahoma,sans-serif; margin:0; padding:24px 16px 60px; }
+  main { max-width:820px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:18px; }
+  .card { background:#111c30; border:1px solid #1e293b; border-radius:14px; padding:14px 16px; margin-bottom:10px; }
+  .row { display:flex; gap:10px; align-items:flex-start; }
+  .badge { flex:0 0 auto; font-size:12px; font-weight:700; padding:2px 9px; border-radius:999px; margin-top:3px; }
+  .wait { background:#1e293b; color:#cbd5e1; }
+  .ok { background:#064e3b; color:#6ee7b7; }
+  .bad { background:#7f1d1d; color:#fca5a5; }
+  .warn { background:#78350f; color:#fcd34d; }
+  .title { font-weight:700; font-size:14px; }
+  .detail { font-size:12.5px; color:#94a3b8; margin-top:2px; white-space:pre-wrap; word-break:break-word; }
+  code { background:#0b1220; border:1px solid #1e293b; padding:1px 5px; border-radius:6px; font-size:12px; color:#93c5fd; direction:ltr; display:inline-block; }
+  .summary { position:sticky; top:0; background:#0b1220ee; backdrop-filter:blur(6px); border:1px solid #1e293b; border-radius:14px; padding:12px 16px; margin-bottom:14px; }
+  button { background:#2563eb; color:#fff; border:0; border-radius:10px; padding:8px 14px; font-weight:700; font-size:13px; cursor:pointer; }
+  button.ghost { background:#1e293b; }
+  .mono { font-family:ui-monospace,Menlo,monospace; direction:ltr; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🩺 فحص صحة النظام</h1>
+  <p class="sub">الصفحة دي بتفحص كل متطلبات Firebase من المتصفح — من غير ما تفتح Console. النتيجة بتقولك السبب بالظبط.</p>
+
+  <div class="summary" id="summary">
+    <strong>الملخص:</strong> <span id="summaryText">جاري الفحص...</span>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="ghost" onclick="copyReport()">📋 انسخ التقرير</button>
+      <button class="ghost" onclick="location.reload()">🔄 إعادة الفحص</button>
+    </div>
+  </div>
+
+  <div id="out"></div>
+</main>
+
+<script>
+const apiKey = 'AIzaSyBTCE6LNQSjCm9-K31iR-SDguJI1ytDkK8';
+const projectId = 'study-managment-45332';
+const bucket = 'study-managment-45332.firebasestorage.app';
+const out = document.getElementById('out');
+const results = [];
+
+function card(id, title) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.id = id;
+  el.innerHTML = `<div class="row"><span class="badge wait">…</span><div style="min-width:0">
+    <div class="title">${title}</div><div class="detail">جاري الفحص...</div></div></div>`;
+  out.appendChild(el);
+  return el;
+}
+function set(id, state, detail) {
+  const el = document.getElementById(id);
+  const badge = el.querySelector('.badge');
+  badge.className = 'badge ' + state;
+  badge.textContent = state === 'ok' ? '✔ تمام' : state === 'bad' ? '✖ مشكلة' : state === 'warn' ? '!' : '…';
+  el.querySelector('.detail').innerHTML = detail;
+  results.push({ id, state, text: el.querySelector('.title').textContent + ' → ' + detail.replace(/<[^>]+>/g, '') });
+  updateSummary();
+}
+function updateSummary() {
+  const bad = results.filter(r => r.state === 'bad');
+  const warn = results.filter(r => r.state === 'warn');
+  const ok = results.filter(r => r.state === 'ok');
+  const el = document.getElementById('summaryText');
+  if (bad.length) el.innerHTML = `<span style="color:#fca5a5">${bad.length} مشكلة مانعة</span> — شوف الكروت الحمراء (${ok.length} تمام، ${warn.length} تحذير)`;
+  else if (warn.length) el.innerHTML = `<span style="color:#fcd34d">${warn.length} تحذير</span> — النظام شغال لكن فيه ملاحظات`;
+  else if (ok.length >= 4) el.innerHTML = `<span style="color:#6ee7b7">كل الفحوصات سليمة ✅</span>`;
+}
+window.copyReport = function () {
+  const txt = 'Smart Study Planner — health check\n' + new Date().toISOString() + '\n' +
+    results.map(r => `[${r.state}] ${r.text}`).join('\n');
+  navigator.clipboard?.writeText(txt).then(
+    () => alert('التقرير اتنسخ — الصقه في المحادثة.'),
+    () => alert(txt)
+  );
+};
+
+/* ---------- 1) Firestore ---------- */
+async function checkFirestore() {
+  const id = 'firestore';
+  card(id, 'قاعدة البيانات (Firestore)');
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/students?pageSize=1&key=${apiKey}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return set(id, 'ok', 'قاعدة البيانات موجودة وبتستجيب، والقراءة مسموحة (قواعد عامة/منشورة).');
+    const msg = data?.error?.message || '';
+    const status = data?.error?.status || res.status;
+    if (/PERMISSION_DENIED/.test(msg) || status === 403) {
+      if (/does not exist|not found|NOT_FOUND/i.test(msg)) {
+        return set(id, 'bad', 'قاعدة Firestore <b>مش متعملة</b> في المشروع.<br>Console → Firestore Database → Create database → Production mode.');
+      }
+      return set(id, 'ok', 'قاعدة البيانات موجودة ✅ (القراءة مرفوضة <code>permission-denied</code> وده <b>مطلوب</b> لأن القواعد محمية).');
+    }
+    if (status === 404 || /NOT_FOUND/i.test(msg)) {
+      return set(id, 'bad', 'قاعدة Firestore <b>مش موجودة</b>.<br>Console → Firestore Database → Create database.');
+    }
+    if (/API has not been used|SERVICE_DISABLED/i.test(msg)) {
+      return set(id, 'bad', 'خدمة Firestore API <b>مقفولة</b> للمشروع.<br>' + msg);
+    }
+    set(id, 'warn', `رد غير متوقع (${status}): ${msg}`);
+  } catch (e) {
+    set(id, 'bad', 'مش قادر أوصل لـ Google من المتصفح ده: <code>' + e.message + '</code><br>جرّب من غير VPN/بروكسي أو من شبكة تانية.');
+  }
+}
+
+/* ---------- 2) Authentication ---------- */
+async function checkAuth() {
+  const id = 'auth';
+  card(id, 'تسجيل الدخول (Email/Password)');
+  try {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'probe@example.com', continueUri: location.origin })
+    });
+    const data = await res.json().catch(() => ({}));
+    const msg = data?.error?.message || '';
+    if (msg === 'OPERATION_NOT_ALLOWED' || /OPERATION_NOT_ALLOWED/.test(msg)) {
+      return set(id, 'bad', 'تسجيل الدخول بالإيميل/الباسورد <b>مقفول</b>.<br>Console → Authentication → Sign-in method → Email/Password → <b>Enable</b>.');
+    }
+    if (res.ok) return set(id, 'ok', 'Email/Password <b>مفعّل</b> والخدمة بتستجيب.');
+    if (/API_KEY_INVALID|API key not valid/i.test(msg)) {
+      return set(id, 'bad', 'مفتاح الـ API غير صالح: ' + msg);
+    }
+    set(id, 'warn', `رد: ${msg || res.status}`);
+  } catch (e) {
+    set(id, 'bad', 'تعذّر الوصول لخدمة الدخول: <code>' + e.message + '</code>');
+  }
+}
+
+/* ---------- 3) Authorized domain ---------- */
+async function checkDomain() {
+  const id = 'domain';
+  card(id, 'دومين الموقع مسموح للدخول');
+  try {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects?key=${apiKey}`);
+    const data = await res.json().catch(() => ({}));
+    const list = data.authorizedDomains || [];
+    const host = location.hostname;
+    const allowed = list.some(d => host === d || host.endsWith('.' + d));
+    const listHtml = list.map(d => `<code>${d}</code>`).join(' ');
+    if (!list.length) return set(id, 'warn', 'مش قادر أقرأ القائمة. لو ظهر خطأ <code>auth/unauthorized-domain</code> عند الدخول، ضيف الدومين يدوياً من Console → Authentication → Settings → Authorized domains.');
+    if (allowed) return set(id, 'ok', `الدومين <code>${host}</code> مسموح ✅<br><span style="font-size:11px">${listHtml}</span>`);
+    set(id, 'bad', `الدومين <code>${host}</code> <b>غير مسموح</b>.<br>Console → Authentication → Settings → Authorized domains → Add domain.<br><span style="font-size:11px">المسموح حالياً: ${listHtml}</span>`);
+  } catch (e) {
+    set(id, 'warn', 'تعذّر فحص الدومينات: ' + e.message);
+  }
+}
+
+/* ---------- 4) Storage ---------- */
+async function checkStorage() {
+  const id = 'storage';
+  card(id, 'تخزين ملفات الكتب (Storage) — اختياري');
+  const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?maxResults=1&key=${apiKey}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok || data?.error?.status === 'PERMISSION_DENIED' || /permission|unauthorized/i.test(JSON.stringify(data))) {
+      return set(id, 'ok', 'Storage متاح (أو مرفوض بقواعد محمية — ده طبيعي). التطبيق بيستخدمه لو متاح.');
+    }
+    if (/404|not found/i.test(JSON.stringify(data))) {
+      return set(id, 'warn', 'Storage مش مفعّل — التطبيق هيستخدم بديل Firestore لملفات الكتب تلقائياً (شغال على الخطة المجانية).');
+    }
+    set(id, 'warn', 'رد غير متوقع من Storage: ' + JSON.stringify(data).slice(0, 200));
+  } catch (e) {
+    set(id, 'warn', 'تعذّر فحص Storage: ' + e.message);
+  }
+}
+
+/* ---------- 5) App reachability ---------- */
+async function checkApp() {
+  const id = 'app';
+  card(id, 'التطبيق نفسه (الملفات محمّلة)');
+  try {
+    const res = await fetch(location.href.replace(/docs\/diagnostics\/.*$/, 'index.html'), { cache: 'no-store' });
+    if (res.ok) return set(id, 'ok', 'نسخة التطبيق بتتحمّل من نفس الدومين — تقدر تفتحها وتبدأ.');
+    set(id, 'warn', 'ملف التطبيق رد ' + res.status);
+  } catch (e) {
+    set(id, 'warn', 'تعذّر فحص التطبيق: ' + e.message);
+  }
+}
+
+(async () => {
+  await checkApp();
+  await checkFirestore();
+  await checkAuth();
+  await checkDomain();
+  await checkStorage();
+})();
+</script>
+</body>
+</html>

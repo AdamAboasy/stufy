@@ -14,7 +14,6 @@ import {
   persistentMultipleTabManager,
   type Firestore
 } from 'firebase/firestore';
-import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 
@@ -55,7 +54,6 @@ export const db: Firestore = (() => {
     });
   }
 })();
-export const storage: FirebaseStorage = getStorage(app);
 
 /** Firebase Auth — تسجيل دخول حقيقي (كلمة السر مش في الكود) */
 export const auth: Auth = getAuth(app);

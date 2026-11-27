@@ -16,14 +16,14 @@ import {
   deleteDoc,
   getDoc,
   getDocsFromServer,
+  getDocFromServer,
   onSnapshot,
   query,
   where,
   limit
 } from 'firebase/firestore';
-import { db, storage, auth, COLLECTIONS } from './firebase';
+import { db, auth, COLLECTIONS } from './firebase';
 import { Student } from '../types';
-import { deleteBookFile } from './booksService';
 
 const studentsCol = () => collection(db, COLLECTIONS.students);
 
@@ -97,21 +97,30 @@ export const fetchStudentsFromServer = async (): Promise<Student[]> => {
   return snapshot.docs.map(d => ({ ...(d.data() as Student), id: d.id }));
 };
 
-export const findStudentByEmail = async (email: string): Promise<Student | null> => {
+/**
+ * بحث بالإيميل — بيرجّع كود الخطأ الحقيقي بدل ما يرجّع null في كل الحالات.
+ * (الأدمن بيقرأ القائمة؛ الطالب بيقرأ مستنده هو من `subscribeStudentById`.)
+ */
+export const findStudentByEmail = async (
+  email: string
+): Promise<{ ok: boolean; student?: Student | null; error?: string }> => {
   const clean = email.trim().toLowerCase();
-  if (!clean) return null;
-  // مطابقة مباشرة بالحقل (نحفظ الإيميل lowercase دائماً)
-  const snapshot = await getDocsFromServer(
-    query(studentsCol(), where('email', '==', clean), limit(1))
-  );
-  if (!snapshot.empty) {
-    const d = snapshot.docs[0];
-    return { ...(d.data() as Student), id: d.id };
-  }
+  if (!clean) return { ok: false, error: 'invalid-email' };
 
-  // fallback: بحث غير حساس لحالة الأحرف (للبيانات القديمة)
-  const all = await fetchStudentsFromServer();
-  return all.find(s => (s.email || '').toLowerCase() === clean) || null;
+  try {
+    const snapshot = await getDocsFromServer(
+      query(studentsCol(), where('email', '==', clean), limit(1))
+    );
+    if (!snapshot.empty) {
+      const d = snapshot.docs[0];
+      return { ok: true, student: { ...(d.data() as Student), id: d.id } };
+    }
+    // fallback: حالة أحرف مختلفة (بيانات قديمة)
+    const all = await fetchStudentsFromServer();
+    return { ok: true, student: all.find(s => (s.email || '').toLowerCase() === clean) || null };
+  } catch (error) {
+    return { ok: false, error: (error as { code?: string })?.code || String(error) };
+  }
 };
 
 export const getStudentById = async (id: string): Promise<Student | null> => {
@@ -121,7 +130,7 @@ export const getStudentById = async (id: string): Promise<Student | null> => {
 
 export const emailExists = async (email: string): Promise<boolean> => {
   const found = await findStudentByEmail(email);
-  return !!found;
+  return !!found.student;
 };
 
 export const countStudents = async (): Promise<number> => {
@@ -170,13 +179,6 @@ export const removeStudent = async (
     return { ok: false, error: code };
   }
 
-  // حذف ملفات الكتب (بعد نجاح حذف المستند) — Storage + بديل Firestore
-  await Promise.all(
-    (student.uploadedPdfs || [])
-      .filter(book => !!book.storagePath)
-      .map(book => deleteBookFile(book.storagePath as string).catch(() => undefined))
-  );
-
   return { ok: true };
 };
 
@@ -187,6 +189,16 @@ export const removeStudentsBatch = async (list: Student[]): Promise<number> => {
     if (result.ok) removed++;
   }
   return removed;
+};
+
+/** قراءة مستند طالب من السيرفر (مش من الكاش) — للتأكد من الحفظ */
+export const getStudentFromServer = async (id: string): Promise<Student | null> => {
+  try {
+    const snap = await getDocFromServer(doc(db, COLLECTIONS.students, id));
+    return snap.exists() ? ({ ...(snap.data() as Student), id: snap.id } as Student) : null;
+  } catch {
+    return null;
+  }
 };
 
 /** بيتأكد إن مستند الطالب مش موجود فعلاً بعد الحذف */
@@ -204,8 +216,8 @@ export const verifyDeleted = async (id: string): Promise<boolean> => {
 /* ------------------------------------------------------------------ */
 
 /**
- * بيمسح أي أثر للطالب من نسخ المتصفح القديمة (`ssp_students` وطابور الرفع)
- * عشان ما يرجعش من كاش محلي قديم.
+ * بيمسح أي أثر للطالب من نسخ المتصفح القديمة **ومن كاش Firestore المحلي**
+ * عشان ما يرجعش أبداً بعد الحذف.
  */
 export const forgetLocalStudent = (studentId: string): void => {
   try {
@@ -235,13 +247,6 @@ export const forgetLocalStudent = (studentId: string): void => {
     /* ignore */
   }
 
-  try {
-    const tomb = localStorage.getItem('ssp_deleted_ids');
-    const ids = tomb ? (JSON.parse(tomb) as string[]) : [];
-    if (!ids.includes(studentId)) {
-      localStorage.setItem('ssp_deleted_ids', JSON.stringify([...ids, studentId]));
-    }
-  } catch {
-    /* ignore */
-  }
+  // ملاحظة: كاش Firestore (IndexedDB) بيتحدّث تلقائياً بالحذف، فمش بنمسحه
+  // عشان ما نضيّعش الاتصالات اللحظية الشغالة.
 };

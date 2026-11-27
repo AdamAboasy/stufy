@@ -3,7 +3,6 @@ import { BookPdf, GeneratedPlan, Student } from '../../types';
 import { checkFeasibility, formatDateAr, generateStudyPlan } from '../../lib/planEngine';
 import {
   BookOpen,
-  Upload,
   CalendarDays,
   Repeat,
   Clock,
@@ -23,10 +22,6 @@ interface BookPlanBuilderProps {
   isArabic: boolean;
   onCancel?: () => void;
   onSubmit: (book: BookPdf, plan: GeneratedPlan) => void;
-  /** رفع الملف (Storage أو بديل Firestore) — بيرجع رابط الملف ومساره */
-  onUpload?: (file: File, bookId: string) => Promise<{ url: string; storagePath: string } | null>;
-  /** الوسيلة المتاحة حالياً — بتغيّر النص التوضيحي والحد العملي */
-  storageBackend?: 'storage' | 'firestore';
 }
 
 const SUBJECTS = [
@@ -45,9 +40,6 @@ const SUBJECTS = [
 const DAY_NAMES_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-/** أقصى حجم مسموح للكتاب */
-export const MAX_FILE_SIZE_MB = 200;
-
 const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`;
@@ -57,18 +49,9 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
   student,
   isArabic,
   onCancel,
-  onSubmit,
-  onUpload,
-  storageBackend = 'firestore'
+  onSubmit
 }) => {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Step 1: the book
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [fileName, setFileName] = useState('');
-  const [fileSizeMb, setFileSizeMb] = useState(0);
+  // Step 1: the book (بيانات وصفية فقط — مفيش رفع ملفات)
   const [bookTitle, setBookTitle] = useState('');
   const [subject, setSubject] = useState(student.subjects?.[0]?.name || 'Physics');
   const [pageCount, setPageCount] = useState(200);
@@ -87,10 +70,10 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
   const draftBook: BookPdf = useMemo(
     () => ({
       id: `pdf-${Date.now()}`,
-      title: bookTitle.trim() || fileName.replace(/\.pdf$/i, '') || (isArabic ? 'كتاب بدون عنوان' : 'Untitled book'),
+      title: bookTitle.trim() || (isArabic ? 'كتاب بدون عنوان' : 'Untitled book'),
       subject,
-      originalFilename: fileName || 'book.pdf',
-      fileSizeMb,
+      originalFilename: `${(bookTitle.trim() || 'book').replace(/\s+/g, '-').toLowerCase()}.pdf`,
+      fileSizeMb: 0,
       pageCount: Number(pageCount) || 1,
       uploadDate: new Date().toISOString(),
       isIndexed: true,
@@ -99,7 +82,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
         : 'Book analysed and split into estimated chapters for scheduling.',
       keyConceptsCount: Math.max(20, Math.round((Number(pageCount) || 1) * 0.6))
     }),
-    [bookTitle, fileName, fileSizeMb, pageCount, subject, isArabic]
+    [bookTitle, pageCount, subject, isArabic]
   );
 
   const feasibility = useMemo(
@@ -107,79 +90,30 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
     [draftBook, examDate, revisionRounds]
   );
 
-  const handleFile = (file: File | null) => {
-    if (!file) return;
-    if (!/\.pdf$/i.test(file.name)) {
-      setError(isArabic ? 'الملفات المدعومة هي PDF فقط.' : 'Only PDF files are supported.');
-      return;
-    }
-    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setError(
-        isArabic
-          ? `حجم الملف كبير جداً (الحد ${MAX_FILE_SIZE_MB} ميجابايت).`
-          : `File is too large (${MAX_FILE_SIZE_MB}MB limit).`
-      );
-      return;
-    }
-    setError(null);
-    setFile(file);
-    setFileName(file.name);
-    setFileSizeMb(Number((file.size / (1024 * 1024)).toFixed(1)));
-    if (!bookTitle) setBookTitle(file.name.replace(/\.pdf$/i, ''));
-    // تقدير أولي لعدد الصفحات من حجم الملف (الطالب يقدر يعدله)
-    const estimate = Math.min(900, Math.max(40, Math.round(file.size / 1024 / 38)));
-    setPageCount(estimate);
-  };
-
   const toggleDayOff = (day: number) => {
     setDaysOff(prev => (prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]));
   };
 
   const canBuild = !!examDate && new Date(`${examDate}T00:00:00`).getTime() > Date.now();
 
-  const handleBuild = async () => {
+  const handleBuild = () => {
     if (!canBuild) {
       setError(isArabic ? 'اختار تاريخ امتحان في المستقبل أولاً.' : 'Pick a future exam date first.');
       return;
     }
-
-    let finalBook: BookPdf = draftBook;
-
-    // الملف إلزامي، ولازم يترفع فعلاً — مفيش «تم» من غير ما الكتاب يتخزن
-    if (onUpload) {
-      if (!file) {
-        setError(isArabic ? 'اختار ملف الكتاب (PDF) الأول.' : 'Please choose the book PDF first.');
-        return;
-      }
-      setUploading(true);
-      try {
-        const uploaded = await onUpload(file, draftBook.id);
-        if (!uploaded) {
-          setError(
-            storageBackend === 'storage'
-              ? (isArabic
-                  ? 'تعذّر رفع الملف (تحقق من قواعد Firebase Storage).'
-                  : 'The file upload failed (check Firebase Storage rules).')
-              : (isArabic
-                  ? 'تعذّر تخزين الملف على Firestore (راجع قواعد Firestore).'
-                  : 'Storing the file on Firestore failed (check Firestore rules).')
-          );
-          return;
-        }
-        finalBook = { ...draftBook, fileUrl: uploaded.url, storagePath: uploaded.storagePath };
-      } finally {
-        setUploading(false);
-      }
+    if (!bookTitle.trim()) {
+      setError(isArabic ? 'اكتب اسم الكتاب الأول.' : 'Please enter the book title first.');
+      return;
     }
-
+    // مفيش رفع ملفات: بنسجّل بيانات الكتاب الوصفية وتبنى الخطة منها
     const plan = generateStudyPlan({
-      book: finalBook,
+      book: draftBook,
       examDate,
       revisionRounds,
       dailyMinutes,
       daysOff
     });
-    onSubmit(finalBook, plan);
+    onSubmit(draftBook, plan);
   };
 
   const steps = [
@@ -204,7 +138,7 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                   {isArabic ? 'ابنِ خطة مذاكرتك من كتابك' : 'Build your study plan from your book'}
                 </h2>
                 <p className="text-[11px] text-slate-400">
-                  {isArabic ? 'ارفع الكتاب + حدد الامتحان + عدد المراجعات' : 'Upload book + exam date + revision rounds'}
+                  {isArabic ? 'بيانات الكتاب + موعد الامتحان + عدد المراجعات' : 'Book details + exam date + revision rounds'}
                 </p>
               </div>
             </div>
@@ -244,13 +178,6 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
 
           <div className="p-4 sm:p-6 space-y-5">
 
-            {warning && (
-              <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-100 text-xs flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{warning}</span>
-              </div>
-            )}
-
             {error && (
               <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-xs flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -258,52 +185,22 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
               </div>
             )}
 
-            {/* STEP 1: BOOK */}
+            {/* STEP 1: BOOK — بيانات الكتاب فقط (مفيش رفع ملفات) */}
             {step === 1 && (
               <div className="space-y-4">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf,.pdf"
-                  className="hidden"
-                  onChange={(e) => handleFile(e.target.files?.[0] || null)}
-                />
-
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`w-full rounded-2xl border-2 border-dashed p-6 sm:p-8 flex flex-col items-center gap-2 transition-colors ${
-                    fileName
-                      ? 'border-emerald-500/40 bg-emerald-950/20'
-                      : 'border-brand-blue/40 bg-brand-blue/5 hover:bg-brand-blue/10'
-                  }`}
-                >
-                  {fileName ? (
-                    <>
-                      <CheckCircle2 className="w-9 h-9 text-emerald-400" />
-                      <span className="text-sm font-bold text-white break-all text-center">{fileName}</span>
-                      <span className="text-[11px] text-slate-400">
-                        {fileSizeMb} MB • {isArabic ? 'اضغط لتغيير الكتاب' : 'Tap to change book'}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-9 h-9 text-brand-blue-electric" />
-                      <span className="text-sm font-bold text-white">
-                        {isArabic ? 'اضغط لرفع كتاب PDF' : 'Tap to upload your PDF book'}
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        {storageBackend === 'storage'
-                          ? (isArabic
-                              ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُرفع على Firebase Storage`
-                              : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firebase Storage`)
-                          : (isArabic
-                              ? `الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت • يُخزَّن على Firestore (الخطة المجانية)`
-                              : `Up to ${MAX_FILE_SIZE_MB}MB • stored on Firestore (free plan)`)}
-                      </span>
-                    </>
-                  )}
-                </button>
+                <div className="rounded-2xl border border-brand-blue/30 bg-brand-blue/5 p-4 flex items-start gap-2.5">
+                  <BookOpen className="w-5 h-5 text-brand-blue-electric shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-white">
+                      {isArabic ? 'اختار الكتاب اللي هتذاكر منه' : 'Pick the book you are studying'}
+                    </p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      {isArabic
+                        ? 'اكتب اسم الكتاب والمادة وعدد الصفحات — والخطة بتتبني على طول من غير رفع أي ملف.'
+                        : 'Enter the title, subject and page count — the plan is built instantly, no file upload.'}
+                    </p>
+                  </div>
+                </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">
@@ -534,20 +431,13 @@ export const BookPlanBuilder: React.FC<BookPlanBuilderProps> = ({
                   </button>
                   <button
                     onClick={handleBuild}
-                    disabled={!canBuild || uploading}
+                    disabled={!canBuild}
                     className="py-3.5 rounded-xl bg-gradient-to-r from-brand-blue to-brand-purple text-white text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2"
                   >
-                    {uploading ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white/70 border-t-transparent rounded-full animate-spin" />
-                        {isArabic ? 'جاري الرفع...' : 'Uploading...'}
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4" />
-                        {isArabic ? 'ابنِ خطتي' : 'Build my plan'}
-                      </>
-                    )}
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      {isArabic ? 'ابنِ خطتي' : 'Build my plan'}
+                    </>
                   </button>
                 </div>
               </div>
