@@ -193,8 +193,8 @@ export const StudentDeletionPanel: React.FC<StudentDeletionPanelProps> = ({
                 </div>
                 <p className="text-[11px] text-red-200/70 mt-0.5 leading-relaxed">
                   {isArabic
-                    ? 'بيمسح كل الطلاب والأكواد وسجلات التدقيق والأدوار وحساب الدخول نفسه — بعد الريفريش التطبيق يرجع لحالة أول مرة (نفس الصفحة النضيفة).'
-                    : 'Deletes every student, code, audit-log entry, role and the sign-in account itself — after a refresh the app is back to its first-run clean state.'}
+                    ? 'بيمسح كل الطلاب والأكواد وسجلات التدقيق وأي دور تاني — إنت (الإدارة العليا) بتفضل موجود، فبعد المسح التطبيق يرجع نضيف تماماً ومحدش غيرك يقدر يدخل.'
+                    : 'Deletes every student, code, audit-log entry and any other role — you (the Super Admin) are kept, so afterwards the app is clean again and nobody else can sign in.'}
                 </p>
               </div>
             </div>
@@ -217,7 +217,8 @@ export const StudentDeletionPanel: React.FC<StudentDeletionPanelProps> = ({
                 <li>• {isArabic ? 'الطلاب وخططهم وكل ما يخصهم' : 'Students, their plans and everything about them'}</li>
                 <li>• {isArabic ? 'أكواد التفعيل' : 'Activation codes'}</li>
                 <li>• {isArabic ? 'سجلات التدقيق بالكامل (مش أرشفة — حذف)' : 'The whole audit trail (deleted, not archived)'}</li>
-                <li>• {isArabic ? 'الأدوار وحساب الدخول الحالي' : 'Roles and the current sign-in account'}</li>
+                <li>• {isArabic ? 'الأدارات التانية (دورك إنت بيتسجل)' : 'Other roles (your own role is kept)'}</li>
+                <li>• {isArabic ? 'حسابك وتسجيل دخولك: بيفضلوا زي ما هما' : 'Your account and sign-in: kept as-is'}</li>
               </ul>
               <p className="text-[11px] text-red-200">
                 {isArabic
@@ -275,8 +276,8 @@ export const StudentDeletionPanel: React.FC<StudentDeletionPanelProps> = ({
               )}
               <p className="text-[10px] text-slate-400 leading-relaxed pt-1">
                 {isArabic
-                  ? 'لو ظهر auth/requires-recent-login: اعمل تسجيل خروج ودخول تاني وكرر الحذف عشان حساب الدخول يتمسح كمان.'
-                  : 'If you see auth/requires-recent-login: sign out and back in, then repeat to delete the sign-in account too.'}
+                  ? 'حسابك مش بيتمسح — الحذف مقصود على البيانات فقط، فمفيش حاجة اسمها تسجيل خروج وإعادة دخول.'
+                  : 'Your account is never deleted — the wipe targets data only, so there is nothing to re-authenticate.'}
               </p>
             </div>
           )}

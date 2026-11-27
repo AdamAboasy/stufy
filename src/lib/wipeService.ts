@@ -1,31 +1,26 @@
 /**
  * «حذف كل البيانات» — بداية من الصفر فعلاً
  * ==========================================================
- * بيمسح:
+ * بيمسح كل **بيانات التطبيق**:
  *  - students (كل الطلاب وخططهم)
  *  - activationCodes (كل الأكواد)
  *  - auditLogs (سجلات التدقيق — بتتمسح من الجذر، مش أرشفة)
  *  - bookFiles (بقايا قديمة)
- *  - appMeta (مؤشر التهيئة يترجع زي أول مرة)
- *  - staff (كل الأدوار) + حساب الدخول الحالي نفسه (Firebase Auth)
+ *  - أي دور إدارة/طالب تاني في staff (ما عدا دورك)
  *
- * النتيجة: بعد الريفريش التطبيق بيرجع لنفس الشاشة النضيفة (خطوة
- * إنشاء أول سوبر أدمن)، من غير أي بيانات قديمة.
+ * **وبيحافظ على** حساب الإدارة مالك التطبيق:
+ *  - مستند `staff/{uid}` بتاعك (سوبر أدمن)
+ *  - مؤشر `appMeta/bootstrap` (مقفول، عشان مفيش حد يعمل أدمن جديد)
+ *  - حساب Firebase Auth نفسه
+ *
+ * النتيجة: بترجع لصفحة الدخول، تسجّل دخول بنفس إيميلك وكلمة سرك، وتلاقي
+ * التطبيق نضيف تماماً — ومحدش تاني يقدر يدخل.
  *
  * "Delete all data" wipes every app collection (students, codes, the audit
- * trail, leftovers) plus the admin's own staff doc and Auth account, leaving
- * the app exactly as if it had just been installed.
+ * trail, leftovers) and every other staff role, but keeps the owner's admin
+ * account, role and bootstrap flag so only that account can sign in.
  */
-import {
-  collection,
-  getDocs,
-  writeBatch,
-  doc,
-  deleteDoc,
-  setDoc,
-  serverTimestamp,
-  type QueryDocumentSnapshot
-} from 'firebase/firestore';
+import { collection, getDocs, writeBatch, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
 import { getCurrentAuthUser } from './authService';
 
@@ -33,7 +28,7 @@ export interface WipeReport {
   ok: boolean;
   deleted: Record<string, number>;
   errors: string[];
-  /** true = حساب الدخول نفسه اتمسح (التطبيق اترجع لشاشة التأسيس) */
+  /** دايماً false: حساب الإدارة بيفضل موجود (محدش تاني يقدر يدخل) */
   accountDeleted: boolean;
 }
 
@@ -86,22 +81,6 @@ const wipeCollection = async (name: string): Promise<{ count: number; errors: st
   return { count, errors };
 };
 
-/** بيمسح مؤشر التهيئة (يرجع التطبيق لحالة أول مرة) */
-const wipeMeta = async (): Promise<{ count: number; errors: string[] }> => {
-  const errors: string[] = [];
-  let count = 0;
-  try {
-    const snapshot = await getDocs(collection(db, COLLECTIONS.meta));
-    for (const metaDoc of snapshot.docs) {
-      await deleteDoc(doc(db, COLLECTIONS.meta, metaDoc.id));
-      count += 1;
-    }
-  } catch (error) {
-    errors.push(`appMeta: ${(error as { code?: string })?.code || String(error)}`);
-  }
-  return { count, errors };
-};
-
 /** بيمسح كل localStorage الخاص بالتطبيق (مفيش أي أثر بيفضل في المتصفح) */
 export const clearLocalAppData = (): void => {
   try {
@@ -116,43 +95,22 @@ export const clearLocalAppData = (): void => {
   }
 };
 
-/** حذف حساب الدخول الحالي من Firebase Auth */
-const deleteCurrentAccount = async (): Promise<{ ok: boolean; error?: string }> => {
-  const user = getCurrentAuthUser();
-  if (!user) return { ok: true };
-  try {
-    await user.delete();
-    return { ok: true };
-  } catch (error) {
-    const code = (error as { code?: string })?.code || 'unknown';
-    // محتاج تسجيل دخول حديث — بعد الريفريش الحساب بيفضل لو ماتمسحش
-    return { ok: false, error: code };
-  }
-};
-
 /**
- * المسح الشامل: كل البيانات + سجل التدقيق + الأدوار + حساب الدخول.
+ * المسح الشامل لبيانات التطبيق (بدون حساب الإدارة صاحب التطبيق).
  *
  * الترتيب مقصود:
  *  1) البيانات (طلاب/أكواد/تدقيق/ملفات) — محتاجين صلاحية أدمن.
- *  2) مؤشر التهيئة — إزالته تفتح «نافذة التأسيس» تاني.
- *  3) الأدوار (staff) — آخر كتابة على Firestore.
- *  4) حذف حساب الدخول نفسه (مش محتاج قواعد).
- *  5) لو Firebase رفض حذف الحساب (requires-recent-login) بنرجّع دورك
- *     من «نافذة التأسيس» اللي فتحناها، عشان تفضل قادر تدخل وتكرر الحذف
- *     بعد تسجيل خروج ودخول — بدل ما تعلق بره اللوحة.
+ *  2) الأدوار التانية في staff — أي حد تاني كان أدمن بيتشال.
+ *  3) حسابك ومؤشر التهيئة **بيفضلوا** زي ما هما ⇒ مفيش نافذة إنشاء أدمن جديدة.
  *
- * Wipes every app collection, the audit trail, the bootstrap flag, all roles
- * and finally the admin's own Auth account. If Firebase refuses the account
- * deletion (stale sign-in) the admin role is restored so a retry is possible.
+ * Wipes all app data + every other staff role, keeping the owner's admin
+ * account, role and bootstrap flag so the app stays locked to that account.
  */
-export const wipeAllAppData = async (currentRole: 'SUPER_ADMIN' | 'STUDENT_ADMIN' = 'SUPER_ADMIN'): Promise<WipeReport> => {
+export const wipeAllAppData = async (): Promise<WipeReport> => {
   const deleted: Record<string, number> = {};
   const errors: string[] = [];
 
-  const account = getCurrentAuthUser();
-  const meUid = account?.uid || '';
-  const meEmail = account?.email || '';
+  const meUid = getCurrentAuthUser()?.uid || '';
 
   // 1) كل البيانات
   for (const target of WIPE_COLLECTIONS.filter(c => c.key !== 'staff')) {
@@ -165,40 +123,20 @@ export const wipeAllAppData = async (currentRole: 'SUPER_ADMIN' | 'STUDENT_ADMIN
     }
   }
 
-  // 2) مؤشر التهيئة (تفتح نافذة التأسيس تاني)
-  const meta = await wipeMeta();
-  deleted.appMeta = meta.count;
-  errors.push(...meta.errors);
-
-  // 3) الأدوار
-  const staff = await wipeCollection(COLLECTIONS.staff);
-  deleted.staff = staff.count;
-  errors.push(...staff.errors);
-
-  // 4) حساب الدخول
-  const accountResult = await deleteCurrentAccount();
-
-  // 5) استرجاع الدور لو الحساب فضل موجود (محتاج دخول حديث)
-  if (!accountResult.ok) {
-    if (accountResult.error) errors.push(`auth: ${accountResult.error}`);
-    if (meUid) {
-      try {
-        await setDoc(doc(db, COLLECTIONS.staff, meUid), {
-          uid: meUid,
-          email: meEmail.toLowerCase(),
-          role: currentRole,
-          studentId: null,
-          updatedAt: serverTimestamp()
-        });
-        // نقفل نافذة التأسيس تاني بعد استرجاع الدور
-        await setDoc(doc(db, COLLECTIONS.meta, 'bootstrap'), {
-          initialized: true,
-          initializedAt: serverTimestamp()
-        }, { merge: true });
-      } catch {
-        /* لو فشل الاسترجاع، الرسالة في الواجهة بتشرح الحل اليدوي */
-      }
+  // 2) الأدوار — كل اللي مش إنت
+  try {
+    const staffSnap = await getDocs(collection(db, COLLECTIONS.staff));
+    const others = staffSnap.docs.filter(d => d.id !== meUid);
+    let removed = 0;
+    for (let start = 0; start < others.length; start += 400) {
+      const batch = writeBatch(db);
+      others.slice(start, start + 400).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      removed += Math.min(400, others.length - start);
     }
+    deleted.staff = removed;
+  } catch (error) {
+    errors.push(`staff: ${(error as { code?: string })?.code || String(error)}`);
   }
 
   clearLocalAppData();
@@ -207,6 +145,7 @@ export const wipeAllAppData = async (currentRole: 'SUPER_ADMIN' | 'STUDENT_ADMIN
     ok: errors.length === 0,
     deleted,
     errors,
-    accountDeleted: accountResult.ok
+    /** الحساب بيفضل موجود — التطبيق مقفول على إيميل الإدارة بس */
+    accountDeleted: false
   };
 };
