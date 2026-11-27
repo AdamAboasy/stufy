@@ -231,19 +231,21 @@ export const studentEnsureAccount = async (
   email: string,
   password: string,
   isArabic: boolean
-): Promise<{ ok: boolean; uid?: string; error?: string }> => {
+): Promise<{ ok: boolean; uid?: string; created?: boolean; error?: string }> => {
   const clean = email.trim().toLowerCase();
   const isTaken = (code: string) =>
     code === 'auth/email-already-in-use' || code === 'permission-denied';
 
   try {
     const credential = await createUserWithEmailAndPassword(auth, clean, password);
-    return { ok: true, uid: credential.user.uid };
+    // created=true ⇒ الحساب اتعمل للتو — لو أي خطوة بعدها فشلت نمسحه
+    // عشان منسيبش حساب Auth يتيم من غير ملف طالب.
+    return { ok: true, uid: credential.user.uid, created: true };
   } catch (error) {
     if (isTaken(errCode(error))) {
       try {
         const credential = await signInWithEmailAndPassword(auth, clean, password);
-        return { ok: true, uid: credential.user.uid };
+        return { ok: true, uid: credential.user.uid, created: false };
       } catch (signInError) {
         const signInCode = errCode(signInError);
         return {
@@ -272,6 +274,18 @@ export const linkStudentAccount = async (
     return { ok: true };
   } catch (error) {
     return { ok: false, error: errCode(error) };
+  }
+};
+
+/**
+ * حذف الحساب الحالي من Auth — بيستخدم بعد التسجيل لو أي خطوة بعدها فشلت
+ * والحساب اتعمل للتو (لمسحه فوراً مفيش مشكلة recent-login).
+ */
+export const deleteCurrentAuthUser = async (): Promise<void> => {
+  try {
+    await auth.currentUser?.delete();
+  } catch {
+    /* نتجاهل — الحساب اليدوي بيتشال من Console لو لزم */
   }
 };
 
