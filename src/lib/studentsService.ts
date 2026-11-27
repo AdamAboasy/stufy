@@ -182,16 +182,6 @@ export const removeStudent = async (
   return { ok: true };
 };
 
-export const removeStudentsBatch = async (list: Student[]): Promise<number> => {
-  let removed = 0;
-  for (const student of list) {
-    const result = await removeStudent(student);
-    if (result.ok) removed++;
-  }
-  return removed;
-};
-
-/** قراءة مستند طالب من السيرفر (مش من الكاش) — للتأكد من الحفظ */
 export const getStudentFromServer = async (id: string): Promise<Student | null> => {
   try {
     const snap = await getDocFromServer(doc(db, COLLECTIONS.students, id));

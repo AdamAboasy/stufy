@@ -160,6 +160,27 @@ export interface StudyPreferences {
   revisionRounds: number;
   dailyMinutes: number;
   daysOff: number[];         // 0=Sunday .. 6=Saturday
+  /** السنة الدراسية اللي الطالب اختارها — المنهج بيتحمّل منها */
+  stageId?: string;
+  /** كلام الطالب عن يومه وطريقة مذاكرته (اختياري) */
+  routineNotes?: string;
+  /** المواد اللي اختار يذاكرها (لو مش كل مواد السنة) */
+  subjectIds?: string[];
+}
+
+/** ملف الطالب الدراسي: السنة + عاداته اليومية اللي عليها بيتبني الجدول */
+export interface StudyProfile {
+  stageId: string;
+  academicYear: string;
+  academicYearAr: string;
+  /** ساعات المذاكرة المتاحة يومياً */
+  dailyHours: number;
+  daysOff: number[];         // 0=Sunday .. 6=Saturday
+  revisionRounds: number;
+  examDate: string;
+  subjectIds: string[];
+  routineNotes: string;
+  updatedAt: string;
 }
 
 export interface GeneratedPlan {
@@ -177,6 +198,8 @@ export interface GeneratedPlan {
   createdAt: string;
   sessions: StudySession[];
   rounds: RevisionRound[];
+  /** السنة الدراسية اللي الخطة مبنية على منهجها */
+  stageId?: string;
 }
 
 export interface ActivationHistoryItem {
@@ -223,6 +246,10 @@ export interface Student {
   /** تفضيلات المذاكرة — null لما الطالب لسه ما اختارش (Firestore بيرفض undefined) */
   studyPreferences?: StudyPreferences | null;
   generatedPlan?: GeneratedPlan | null;
+  /** السنة الدراسية اللي اختارها الطالب (لمرة واحدة — بيبدأ منها المنهج) */
+  curriculumStageId?: string;
+  /** عاداته اليومية اللي بيتبني عليها الجدول */
+  studyProfile?: StudyProfile | null;
   overallProgress: number; // 0-100
   notes?: string;
 }

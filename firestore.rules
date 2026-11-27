@@ -43,6 +43,13 @@ service cloud.firestore {
       return !exists(/databases/$(database)/documents/appMeta/bootstrap);
     }
 
+    // «تطبيق جديد تماماً»: مفيش أي أدمن ومفيش مستند التهيئة.
+    // بندعم مستند واحد ثابت `staff/superadmin` كعلامة (مش مستخدم فعلي).
+    function freshApp() {
+      return !exists(/databases/$(database)/documents/appMeta/bootstrap)
+             && !exists(/databases/$(database)/documents/staff/superadmin);
+    }
+
     // ---- Staff (roles) ----
     // المستخدم يقدر يقرأ دوره هو؛ السوبر أدمن يقرأ الكل ويكتب.
     match /staff/{uid} {
@@ -52,7 +59,7 @@ service cloud.firestore {
                     && request.auth.uid == uid
                     && bootstrapOpen()
                     && request.resource.data.role == 'SUPER_ADMIN';
-      // الطالب بيسجّل نفسه STUDENT بعد إنشاء حسابه
+      // الطالب بيسجّل نفسه STUDENT بعد إنشاء حسابه (التسجيل بيتم من جهاز الإدارة)
       allow create: if signedIn()
                     && request.auth.uid == uid
                     && !bootstrapOpen()
@@ -75,18 +82,25 @@ service cloud.firestore {
       // الأدمن بيقرأ الكل، والطالب بيقرأ ملفه هو بس
       allow read: if isAdmin() || isSelf(studentId);
       // التسجيل (create) وتحديث الكود يتم من جهاز الإدارة ⇒ أدمن مسجّل فقط
-      allow create: if isAdmin();
+      // استثناء وحيد ومحدود: نافذة التأسيس بتسمح بمستند الطالب **اللي معرّفه = uid
+      // بتاعه هو** وبس (مفيش كتابة على ملف حد تاني أثناء التأسيس).
+      allow create: if isAdmin()
+                    || (freshApp()
+                        && studentId == request.auth.uid
+                        && request.resource.data.ownerUid == request.auth.uid
+                        && request.resource.data.email == request.auth.token.email);
       allow update: if isAdmin() || isSelf(studentId);
       // الحذف للسوبر أدمن فقط — حذف نهائي
       allow delete: if isSuperAdmin();
     }
 
-    // ---- Audit trail (append-only) ----
+    // ---- Audit trail ----
+    // إضافة فقط للجميع، لكن السوبر أدمن يقدر يحذف (لازم لزر «حذف كل البيانات»)
     match /auditLogs/{logId} {
       allow read: if isAdmin();
-      // أي مستخدم مسجّل يقدر يضيف سجل — والقراءة للأدمن فقط (append-only)
       allow create: if signedIn();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isSuperAdmin();
     }
 
     // ---- Activation codes ----

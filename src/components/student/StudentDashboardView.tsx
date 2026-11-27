@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { BookPdf, GeneratedPlan, Student, StudySession } from '../../types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { GeneratedPlan, Student, StudyProfile, StudySession } from '../../types';
 import { Logo } from '../brand/Logo';
-import { BookPlanBuilder } from './BookPlanBuilder';
+import { StudySetupWizard } from './StudySetupWizard';
+import { getStageCurriculum } from '../../data/curriculum';
 import { StudentSettings } from './StudentSettings';
 import { formatDateAr, planProgressPercent } from '../../lib/planEngine';
 import {
@@ -47,9 +48,11 @@ interface StudentDashboardViewProps {
   onUpdateStudent?: (updated: Student) => void;
   /** baseStudent: أحدث نسخة من الملف (لو فيه تعديل لسه مش ظاهر في الـ state) */
   onSavePlan?: (plan: GeneratedPlan, baseStudent?: Student) => void;
+  /** إعداد الطالب لأول مرة: السنة + عاداته اليومية + الجدول */
+  onSaveSetup?: (profile: StudyProfile, plan: GeneratedPlan) => void;
 }
 
-type SubTab = 'home' | 'plan' | 'books' | 'exam' | 'settings' | 'devices';
+type SubTab = 'home' | 'plan' | 'curriculum' | 'exam' | 'settings' | 'devices';
 
 const todayIso = (): string => {
   const d = new Date();
@@ -66,16 +69,27 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   onToggleLanguage,
   onUpdateStudent,
   onSavePlan,
+  onSaveSetup,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('home');
   const [showBuilder, setShowBuilder] = useState(false);
+  const curriculum = getStageCurriculum(student.curriculumStageId);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [selectedPdf, setSelectedPdf] = useState<BookPdf | null>(null);
-  const [bookToDelete, setBookToDelete] = useState<BookPdf | null>(null);
   const [saveNote, setSaveNote] = useState<string | null>(null);
 
   const plan = student.generatedPlan || null;
+  /** الطالب الجديد: لازم يختار سنته ويوصف يومه قبل ما نعرض جدول */
+  const needsSetup = !plan;
   const today = todayIso();
+
+  // أول دخول: بنفتح إعداد السنة/اليوم تلقائياً (مرة واحدة بس)
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (needsSetup && !autoOpened.current && onSaveSetup) {
+      autoOpened.current = true;
+      setShowBuilder(true);
+    }
+  }, [needsSetup, onSaveSetup]);
   const todaySessions = useMemo(
     () => (plan ? plan.sessions.filter(s => s.date === today) : []),
     [plan, today]
@@ -113,34 +127,12 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
     onUpdateStudent({ ...activeStudent, generatedPlan: updatedPlan });
   };
 
-  const handleCreatePlan = (book: BookPdf, generated: GeneratedPlan) => {
-    if (!onSavePlan) return;
-    // 1) register the uploaded book on the student record
-    const withBook: Student = {
-      ...activeStudent,
-      uploadedPdfs: [book, ...(activeStudent.uploadedPdfs || [])],
-      subjects: activeStudent.subjects?.length
-        ? activeStudent.subjects
-        : [
-            {
-              id: `sub-${book.subject}`,
-              name: book.subject,
-              nameAr: book.subject,
-              code: book.subject.slice(0, 3).toUpperCase(),
-              icon: 'BookOpen',
-              color: '#00D2FF',
-              totalLessons: generated.chapters.length,
-              completedLessons: 0,
-              progressPercent: 0,
-              chapters: []
-            }
-          ]
-    };
-    // حفظ واحد ذرّي: الكتاب + الخطة مع بعض (بدل كتابة تمسح التانية)
-    onSavePlan(generated, withBook);
+  const handleSetupFinish = (profile: StudyProfile, generated: GeneratedPlan) => {
+    if (!onSaveSetup) return;
+    onSaveSetup(profile, generated);
     setShowBuilder(false);
-    setActiveSubTab('plan');
-    flash(isArabic ? 'تم بناء خطة المذاكرة من كتابك!' : 'Your study plan was built from your book!');
+    setActiveSubTab('home');
+    flash(isArabic ? 'تم بناء جدولك على كل المنهج!' : 'Your full curriculum schedule is ready!');
   };
 
   const handleToggleLegacyTask = (taskId: string) => {
@@ -151,25 +143,6 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
         t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t
       )
     });
-  };
-
-  const handleDeleteBook = (book: BookPdf) => {
-    if (!onUpdateStudent) return;
-
-    // لو الخطة الحالية مبنية على الكتاب ده، بنمسح الخطة مع الكتاب
-    const planUsesBook = plan?.bookId === book.id;
-    onUpdateStudent({
-      ...activeStudent,
-      uploadedPdfs: (activeStudent.uploadedPdfs || []).filter(p => p.id !== book.id),
-      generatedPlan: planUsesBook ? null : activeStudent.generatedPlan
-    });
-    setBookToDelete(null);
-    setSelectedPdf(null);
-    flash(
-      planUsesBook
-        ? (isArabic ? 'تم حذف الكتاب والخطة المرتبطة به.' : 'Book and its linked plan were deleted.')
-        : (isArabic ? 'تم حذف الكتاب.' : 'Book deleted.')
-    );
   };
 
   const handleDeletePlan = () => {
@@ -189,7 +162,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   const navItems: { key: SubTab; labelAr: string; labelEn: string; icon: React.ReactNode }[] = [
     { key: 'home', labelAr: 'الرئيسية', labelEn: 'Home', icon: <Home className="w-5 h-5" /> },
     { key: 'plan', labelAr: 'خطتي', labelEn: 'My plan', icon: <Calendar className="w-5 h-5" /> },
-    { key: 'books', labelAr: 'كتبي', labelEn: 'Books', icon: <Library className="w-5 h-5" /> },
+    { key: 'curriculum', labelAr: 'منهجي', labelEn: 'Curriculum', icon: <Library className="w-5 h-5" /> },
     { key: 'exam', labelAr: 'الامتحان', labelEn: 'Exam', icon: <Target className="w-5 h-5" /> },
     { key: 'settings', labelAr: 'إعداداتي', labelEn: 'Settings', icon: <Settings className="w-5 h-5" /> }
   ];
@@ -356,11 +329,11 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                   <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
                     {plan
                       ? (isArabic
-                          ? `خطتك جاهزة: باقي ${examDaysLeft} يوم على الامتحان، ومحتاج تخلص ${todaySessions.filter(s => !s.isCompleted).length} جلسة النهاردة.`
-                          : `Your plan is ready: ${examDaysLeft} days to the exam, ${todaySessions.filter(s => !s.isCompleted).length} session(s) left today.`)
+                          ? `خطتك جاهزة على منهج سنتك: باقي ${examDaysLeft} يوم على الامتحان، ومحتاج تخلص ${todaySessions.filter(s => !s.isCompleted).length} جلسة النهاردة.`
+                          : `Your curriculum plan is ready: ${examDaysLeft} days to the exam, ${todaySessions.filter(s => !s.isCompleted).length} session(s) left today.`)
                       : (isArabic
-                          ? 'ابدأ برفع كتابك وتحديد يوم الامتحان، والبرنامج هيبني لك خطة مذاكرة ومراجعة منظمة.'
-                          : 'Start by uploading your book and setting the exam date — we build the schedule for you.')}
+                          ? 'اختار سنتك وقولنا بتذاكر قد إيه في اليوم، وإحنا نوزّع المنهج على أيامك.'
+                          : 'Pick your year and tell us your daily study time — we distribute the curriculum across your days.')}
                   </p>
                 </div>
 
@@ -371,8 +344,8 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                 >
                   <PlusCircle className="w-5 h-5" />
                   {plan
-                    ? (isArabic ? 'بناء خطة جديدة من كتاب آخر' : 'Build a new plan from another book')
-                    : (isArabic ? 'ارفع كتابك وابنِ خطتك' : 'Upload your book & build your plan')}
+                    ? (isArabic ? 'إعادة توزيع الجدول' : 'Rebuild the schedule')
+                    : (isArabic ? 'اختار سنتك وابنِ جدولك' : 'Pick your year & build your schedule')}
                 </button>
 
                 {/* Metrics */}
@@ -419,28 +392,27 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
             </div>
 
             {!plan ? (
-              /* Empty state: no ready-made tasks, the student creates their own plan */
+              /* Empty state: الطالب يختار سنته ويوصف يومه → البرنامج يوزّع المنهج */
               <div className="glass-panel rounded-3xl border border-slate-800 p-6 sm:p-10 text-center space-y-4">
                 <div className="w-16 h-16 mx-auto rounded-3xl bg-brand-blue/15 border border-brand-blue/30 flex items-center justify-center">
-                  <BookOpen className="w-8 h-8 text-brand-blue-electric" />
+                  <GraduationCap className="w-8 h-8 text-brand-blue-electric" />
                 </div>
                 <h2 className="text-lg font-bold text-white">
-                  {isArabic ? 'مفيش مهام جاهزة — إنت اللي بتحدد خطتك' : 'No preset tasks — you own your plan'}
+                  {isArabic ? 'خطوتين ونطلعلك جدول كامل' : 'Two steps to your full schedule'}
                 </h2>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
                   {isArabic
-                    ? 'ارفع كتابك، حدد يوم الامتحان، وقولنا عايز تراجع كام مرة. البرنامج هيقسم الكتاب على الأيام ويبني لك جدول مذاكرة ومراجعة دقيق.'
-                    : 'Upload your book, set the exam date and pick how many revision rounds you want. We split the book across your days and build the schedule.'}
+                    ? 'اختار سنتك الدراسية (المنهج محفوظ عندنا جاهز)، وقولنا بتذاكر قد إيه في اليوم — والبرنامج يوزّع أبواب المنهج على أيامك قبل الامتحان.'
+                    : 'Pick your academic year (the curriculum is already stored), tell us how long you study daily, and we distribute its chapters across your days before the exam.'}
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-w-lg mx-auto pt-2 text-start">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md mx-auto pt-2 text-start">
                   {[
-                    { ar: '١. ارفع الكتاب', en: '1. Upload the book', icon: <Library className="w-4 h-4" /> },
-                    { ar: '٢. حدد يوم الامتحان', en: '2. Set the exam date', icon: <Calendar className="w-4 h-4" /> },
-                    { ar: '٣. اختار مراجعاتك', en: '3. Choose revisions', icon: <RefreshCw className="w-4 h-4" /> }
-                  ].map((s, i) => (
+                    { ar: '١. اختار سنتك', en: '1. Pick your year', icon: <GraduationCap className="w-4 h-4" /> },
+                    { ar: '٢. وصف يومك', en: '2. Describe your day', icon: <Clock className="w-4 h-4" /> }
+                  ].map((st, i) => (
                     <div key={i} className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-300 flex items-center gap-2">
-                      <span className="text-brand-blue-electric">{s.icon}</span>
-                      {isArabic ? s.ar : s.en}
+                      <span className="text-brand-blue-electric">{st.icon}</span>
+                      {isArabic ? st.ar : st.en}
                     </div>
                   ))}
                 </div>
@@ -449,10 +421,9 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                   className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-brand-blue hover:bg-brand-blue-dark text-white text-sm font-bold"
                 >
                   <Sparkles className="w-4 h-4" />
-                  {isArabic ? 'ابدأ وابنِ خطتي' : 'Start & build my plan'}
+                  {isArabic ? 'يلا نبدأ' : "Let's start"}
                 </button>
 
-                {/* Existing tasks (if any) stay available until a new plan is built */}
                 {activeStudent.dailyTasks?.length > 0 && (
                   <div className="pt-4 border-t border-slate-800 text-start space-y-2">
                     <h3 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
@@ -598,12 +569,12 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
             {!plan ? (
               <div className="glass-panel rounded-3xl border border-slate-800 p-8 text-center space-y-3">
                 <Calendar className="w-10 h-10 text-slate-600 mx-auto" />
-                <p className="text-sm text-slate-300 font-bold">{isArabic ? 'لسه ما بنيتش خطة' : 'No plan yet'}</p>
+                <p className="text-sm text-slate-300 font-bold">{isArabic ? 'لسه ما اتظبطش جدولك' : 'No schedule yet'}</p>
                 <button
                   onClick={() => setShowBuilder(true)}
                   className="px-5 py-2.5 rounded-xl bg-brand-blue text-white text-xs font-bold"
                 >
-                  {isArabic ? 'ابنِ خطتي الآن' : 'Build my plan now'}
+                  {isArabic ? 'اختار سنتك وابدأ' : 'Pick your year & start'}
                 </button>
               </div>
             ) : (
@@ -614,7 +585,8 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                     <div className="min-w-0">
                       <h2 className="text-sm sm:text-base font-bold text-white truncate">{plan.bookTitle}</h2>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        {plan.subject} • {plan.totalPages} {isArabic ? 'صفحة' : 'pages'} • {plan.chapters.length} {isArabic ? 'فصل' : 'chapters'}
+                        {plan.subject} • {plan.chapters.length} {isArabic ? 'باب' : 'topics'} •{' '}
+                        {plan.dailyMinutes / 60} {isArabic ? 'ساعة/يوم' : 'h/day'}
                       </p>
                     </div>
                     <button
@@ -718,70 +690,114 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
           </div>
         )}
 
-        {/* ---------- BOOKS ---------- */}
-        {activeSubTab === 'books' && (
+        {/* ---------- CURRICULUM (منهج سنتي) ---------- */}
+        {activeSubTab === 'curriculum' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
                 <Library className="w-5 h-5 text-brand-blue-electric" />
-                {isArabic ? 'كتبي' : 'My books'}
-                <span className="text-[11px] text-slate-400 font-mono">({student.uploadedPdfs?.length || 0})</span>
+                {isArabic ? 'منهج سنتي' : 'My curriculum'}
               </h2>
               <button
                 onClick={() => setShowBuilder(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-blue text-white text-[11px] font-bold"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 text-slate-200 text-[11px] font-bold"
               >
-                <PlusCircle className="w-4 h-4" />
-                {isArabic ? 'أضف كتاب' : 'Add book'}
+                <RefreshCw className="w-4 h-4" />
+                {isArabic ? 'إعادة ضبط الجدول' : 'Rebuild schedule'}
               </button>
             </div>
 
-            {(!student.uploadedPdfs || student.uploadedPdfs.length === 0) ? (
+            {!curriculum ? (
               <div className="glass-panel rounded-3xl border border-slate-800 p-8 text-center space-y-3">
-                <FileText className="w-10 h-10 text-slate-600 mx-auto" />
-                <p className="text-xs text-slate-400">{isArabic ? 'لسه ما أضفتش أي كتاب.' : 'No books added yet.'}</p>
+                <GraduationCap className="w-10 h-10 text-slate-600 mx-auto" />
+                <p className="text-xs text-slate-400">
+                  {isArabic ? 'اختار سنتك الدراسية عشان نحمّل منهجك.' : 'Pick your academic year to load your curriculum.'}
+                </p>
+                <button
+                  onClick={() => setShowBuilder(true)}
+                  className="px-5 py-2.5 rounded-xl bg-brand-blue text-white text-xs font-bold"
+                >
+                  {isArabic ? 'اختار سنتي' : 'Pick my year'}
+                </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {student.uploadedPdfs.map(pdf => (
-                  <div key={pdf.id} className="glass-panel rounded-2xl border border-slate-800 p-4 space-y-3">
-                    <div className="flex items-start gap-2.5">
-                      <div className="w-10 h-10 rounded-xl bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
-                        <FileText className="w-5 h-5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <span className="text-[10px] font-bold text-brand-blue-electric uppercase">{pdf.subject}</span>
-                        <h3 className="text-xs font-bold text-white line-clamp-2">{pdf.title}</h3>
-                      </div>
-                      <button
-                        onClick={() => setBookToDelete(pdf)}
-                        className="p-1.5 rounded-lg bg-red-950/60 text-red-300 border border-red-500/30 shrink-0 active:scale-95"
-                        title={isArabic ? 'حذف الكتاب' : 'Delete book'}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400">
-                      <span>{pdf.pageCount} {isArabic ? 'صفحة' : 'pages'}</span>
-                      <span>{new Date(pdf.uploadDate).toLocaleDateString(isArabic ? 'ar-EG' : 'en-GB')}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <button
-                        onClick={() => setSelectedPdf(pdf)}
-                        className="py-2 rounded-xl bg-slate-900 text-brand-blue-light text-[11px] font-bold border border-slate-700"
-                      >
-                        {isArabic ? 'تفاصيل' : 'Details'}
-                      </button>
-                      <button
-                        onClick={() => setShowBuilder(true)}
-                        className="py-2 rounded-xl bg-brand-purple/20 text-brand-purple-light text-[11px] font-bold border border-brand-purple/30"
-                      >
-                        {isArabic ? 'خطة من الكتاب' : 'Plan from book'}
-                      </button>
-                    </div>
+              <>
+                <div className="glass-panel rounded-3xl border border-slate-800 p-4 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-black text-white">
+                      {isArabic ? curriculum.labelAr : curriculum.labelEn}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-blue/20 text-brand-blue-electric border border-brand-blue/30 font-bold">
+                      {curriculum.subjects.length} {isArabic ? 'مواد' : 'subjects'}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-700 font-bold">
+                      {curriculum.subjects.reduce((sum, sub) => sum + sub.chapters.length, 0)}{' '}
+                      {isArabic ? 'باب' : 'topics'}
+                    </span>
                   </div>
-                ))}
-              </div>
+                  {student.studyProfile?.routineNotes && (
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      {isArabic ? 'طريقة مذاكرتك: ' : 'Your routine: '}
+                      {student.studyProfile.routineNotes}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {curriculum.subjects.map(subject => {
+                    const chosen = !student.studyProfile?.subjectIds?.length
+                      ? true
+                      : student.studyProfile.subjectIds.includes(subject.id);
+                    const subjectSessions = plan?.sessions.filter(
+                      sess => sess.titleAr.startsWith(subject.nameAr) || sess.title.startsWith(subject.name)
+                    ) || [];
+                    const done = subjectSessions.filter(x => x.isCompleted).length;
+                    return (
+                      <div
+                        key={subject.id}
+                        className={`glass-panel rounded-2xl border p-4 space-y-2.5 ${
+                          chosen ? 'border-slate-800' : 'border-slate-800/50 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="text-xs font-bold text-white">
+                            {isArabic ? subject.nameAr : subject.name}
+                          </h3>
+                          <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                            {subject.chapters.length} {isArabic ? 'باب' : 'topics'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {subject.chapters.map(chapter => {
+                            const chapterSessions = subjectSessions.filter(
+                              sess => sess.chapterTitleAr === chapter.titleAr
+                            );
+                            const chapterDone =
+                              chapterSessions.length > 0 && chapterSessions.every(x => x.isCompleted);
+                            return (
+                              <span
+                                key={chapter.id}
+                                className={`px-2 py-0.5 rounded-md text-[10px] border ${
+                                  chapterDone
+                                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/30'
+                                    : 'bg-slate-900 text-slate-300 border-slate-800'
+                                }`}
+                              >
+                                {isArabic ? chapter.titleAr : chapter.titleEn}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        {subjectSessions.length > 0 && (
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            {done}/{subjectSessions.length} {isArabic ? 'جلسة مكتملة' : 'sessions done'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         )}
@@ -797,7 +813,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
 
               {!plan ? (
                 <div className="text-center py-6 space-y-3">
-                  <p className="text-xs text-slate-400">{isArabic ? 'حدد امتحانك وابنِ خطتك عشان نحسب لك العد التنازلي والمراجعات.' : 'Set your exam and build a plan to see the countdown and revisions.'}</p>
+                  <p className="text-xs text-slate-400">{isArabic ? 'حدد امتحانك ووقتك اليومي عشان نحسب لك العد التنازلي والمراجعات.' : 'Set your exam and daily time to see the countdown and revisions.'}</p>
                   <button
                     onClick={() => setShowBuilder(true)}
                     className="px-5 py-2.5 rounded-xl bg-brand-blue text-white text-xs font-bold"
@@ -839,7 +855,7 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                       onClick={() => setShowBuilder(true)}
                       className="py-2.5 rounded-xl bg-slate-800 text-slate-200 text-[11px] font-bold"
                     >
-                      {isArabic ? 'تعديل الخطة' : 'Adjust plan'}
+                      {isArabic ? 'تعديل الجدول' : 'Adjust schedule'}
                     </button>
                     <button
                       onClick={() => setActiveSubTab('plan')}
@@ -949,104 +965,18 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
         </div>
       </nav>
 
-      {/* ============ Build plan modal ============ */}
+      {/* ============ First-run setup / rebuild schedule ============ */}
       {showBuilder && (
-        <BookPlanBuilder
+        <StudySetupWizard
           student={student}
           isArabic={isArabic}
-          onCancel={() => setShowBuilder(false)}
-          onSubmit={handleCreatePlan}
+          onRestart={plan ? () => setShowBuilder(false) : undefined}
+          onFinish={handleSetupFinish}
         />
       )}
 
-      {/* ============ Delete book confirmation ============ */}
-      {bookToDelete && (
-        <div className="fixed inset-0 z-[65] bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-red-500/40 p-5 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-2xl bg-red-950 text-red-400 border border-red-500/40 shrink-0">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-white text-base">
-                  {isArabic ? 'تأكيد حذف الكتاب' : 'Confirm book deletion'}
-                </h3>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed break-words">
-                  {isArabic
-                    ? `سيتم حذف (${bookToDelete.title}) نهائياً من مكتبتك${plan?.bookId === bookToDelete.id ? '، ومعاه الخطة المبنية عليه' : ''}.`
-                    : `(${bookToDelete.title}) will be permanently removed from your library${plan?.bookId === bookToDelete.id ? ' along with the plan built on it' : ''}.`}
-                </p>
-              </div>
-              <button
-                onClick={() => setBookToDelete(null)}
-                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row gap-2 pt-1">
-              <button
-                onClick={() => setBookToDelete(null)}
-                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"
-              >
-                {isArabic ? 'إلغاء' : 'Cancel'}
-              </button>
-              <button
-                onClick={() => handleDeleteBook(bookToDelete)}
-                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center justify-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                {isArabic ? 'حذف نهائي' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============ Book details modal ============ */}
-      {selectedPdf && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-slate-800 p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-2">
-              <h3 className="font-bold text-white text-sm">{selectedPdf.title}</h3>
-              <button onClick={() => setSelectedPdf(null)} className="p-1.5 rounded-lg bg-slate-800 text-slate-400">
-                ✕
-              </button>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">{selectedPdf.analyzedSummary}</p>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                <span className="text-slate-400">{isArabic ? 'الصفحات' : 'Pages'}: </span>
-                <span className="font-bold text-white">{selectedPdf.pageCount}</span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                <span className="text-slate-400">{isArabic ? 'المفاهيم' : 'Concepts'}: </span>
-                <span className="font-bold text-emerald-400">{selectedPdf.keyConceptsCount}</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-2">
-              <button
-                onClick={() => { setSelectedPdf(null); setShowBuilder(true); }}
-                className="w-full py-3 rounded-xl bg-brand-blue text-white text-xs font-bold flex items-center justify-center gap-2"
-              >
-                <Sparkles className="w-4 h-4" />
-                {isArabic ? 'ابنِ خطة لهذا الكتاب' : 'Build a plan for this book'}
-              </button>
-              <button
-                onClick={() => setBookToDelete(selectedPdf)}
-                className="w-full py-2.5 rounded-xl bg-red-950/60 text-red-300 border border-red-500/30 text-xs font-bold flex items-center justify-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                {isArabic ? 'حذف هذا الكتاب' : 'Delete this book'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <footer className="max-w-7xl mx-auto w-full text-center text-[11px] text-slate-500 py-4 border-t border-slate-800/60 mb-16 md:mb-0">
-        © 2026 Smart Study Planner • {isArabic ? 'خطة مذاكرة مبنية على كتابك' : 'Plans built from your own book'}
+        © 2026 Smart Study Planner • {isArabic ? 'جدولك مبني على منهج سنتك' : 'Your schedule is built on your year’s curriculum'}
       </footer>
 
     </div>

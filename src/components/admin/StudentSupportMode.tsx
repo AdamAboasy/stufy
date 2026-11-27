@@ -282,25 +282,51 @@ export const StudentSupportMode: React.FC<StudentSupportModeProps> = ({
               </div>
             </div>
 
-            {/* Uploaded AI Analyzed Books */}
+            {/* Curriculum & schedule */}
             <div className="glass-panel rounded-2xl p-6 border border-slate-800">
               <h3 className="text-base font-bold text-white flex items-center gap-2 mb-3">
                 <BookOpen className="w-5 h-5 text-emerald-400" />
-                <span>{isArabic ? 'الكتب المحللة بالذكاء الاصطناعي' : 'Analyzed Textbooks'}</span>
+                <span>{isArabic ? 'المنهج والجدول' : 'Curriculum & schedule'}</span>
               </h3>
-              
+
               <div className="space-y-2.5">
-                {student.uploadedPdfs.map((pdf) => (
-                  <div key={pdf.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between">
-                    <div className="truncate mr-2 rtl:mr-0 rtl:ml-2">
-                      <div className="font-bold text-white truncate">{pdf.title}</div>
-                      <div className="text-slate-400 text-[11px]">{pdf.pageCount} {isArabic ? 'صفحة' : 'pages'} • {pdf.fileSizeMb} MB</div>
+                {student.studyProfile ? (
+                  <>
+                    <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between">
+                      <div className="truncate mr-2 rtl:mr-0 rtl:ml-2">
+                        <div className="font-bold text-white truncate">
+                          {isArabic ? student.studyProfile.academicYearAr : student.studyProfile.academicYear}
+                        </div>
+                        <div className="text-slate-400 text-[11px]">
+                          {student.studyProfile.dailyHours} {isArabic ? 'ساعة/يوم' : 'h/day'} •{' '}
+                          {student.studyProfile.examDate}
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-500/30 shrink-0">
+                        {student.generatedPlan ? 'Scheduled' : 'Setup done'}
+                      </span>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-500/30 shrink-0">
-                      AI Indexed
-                    </span>
+
+                    {student.generatedPlan && (
+                      <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] space-y-1">
+                        <div className="text-slate-300 font-bold">
+                          {student.generatedPlan.chapters.length} {isArabic ? 'باب' : 'topics'} •{' '}
+                          {student.generatedPlan.sessions.length} {isArabic ? 'جلسة' : 'sessions'}
+                        </div>
+                        <div className="text-slate-400 leading-relaxed">
+                          {student.generatedPlan.sessions
+                            .slice(0, 4)
+                            .map(sess => (isArabic ? sess.titleAr : sess.title))
+                            .join(' • ')}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-400">
+                    {isArabic ? 'الطالب لسه ما اختارش سنته.' : 'The student has not picked a year yet.'}
                   </div>
-                ))}
+                )}
               </div>
             </div>
 

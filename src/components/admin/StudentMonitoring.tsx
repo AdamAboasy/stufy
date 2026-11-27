@@ -465,15 +465,27 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
                         </div>
                       </td>
 
-                      {/* Number of Uploaded PDFs & Study Plans */}
+                      {/* Curriculum plan status */}
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-1.5 text-slate-300">
-                          <FileText className="w-3.5 h-3.5 text-red-400" />
-                          <span className="font-semibold">{student.uploadedPdfs.length} {isArabic ? 'كتب PDF' : 'PDFs'}</span>
+                          <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="font-semibold">
+                            {student.generatedPlan
+                              ? `${student.generatedPlan.chapters.length} ${isArabic ? 'باب' : 'topics'}`
+                              : isArabic
+                              ? 'بدون جدول'
+                              : 'No schedule'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mt-0.5">
-                          <BookOpen className="w-3.5 h-3.5 text-brand-blue-light" />
-                          <span>{student.studyPlans.length} {isArabic ? 'خطط مذاكرة' : 'Plans'}</span>
+                          <Calendar className="w-3.5 h-3.5 text-brand-blue-light" />
+                          <span>
+                            {student.generatedPlan
+                              ? `${student.generatedPlan.sessions.length} ${isArabic ? 'جلسة' : 'sessions'}`
+                              : isArabic
+                              ? 'لسه ما بدأش'
+                              : 'Not started'}
+                          </span>
                         </div>
                       </td>
 
@@ -682,8 +694,8 @@ export const StudentMonitoring: React.FC<StudentMonitoringProps> = ({
                   <div className="text-sm font-black text-brand-blue-electric">{student.overallProgress}%</div>
                 </div>
                 <div className="rounded-xl bg-slate-900 border border-slate-800 p-2">
-                  <div className="text-[10px] text-slate-400">{isArabic ? 'كتب' : 'Books'}</div>
-                  <div className="text-sm font-black text-white">{student.uploadedPdfs.length}</div>
+                  <div className="text-[10px] text-slate-400">{isArabic ? 'أبواب' : 'Topics'}</div>
+                  <div className="text-sm font-black text-white">{student.generatedPlan?.chapters.length || 0}</div>
                 </div>
                 <div className="rounded-xl bg-slate-900 border border-slate-800 p-2">
                   <div className="text-[10px] text-slate-400">{isArabic ? 'أجهزة' : 'Devices'}</div>
