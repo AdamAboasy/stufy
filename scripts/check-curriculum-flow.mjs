@@ -21,6 +21,7 @@ const rules = read('firestore.rules');
 const firebase = read('src/lib/firebase.ts');
 const login = read('src/components/auth/LoginPage.tsx');
 const activation = read('src/lib/activationService.ts');
+const settings = read('src/components/student/StudentSettings.tsx');
 const auth = read('src/lib/authService.ts');
 
 ok('SetupAssistant removed', !app.includes('SetupAssistant') && !app.includes('4 خطوات للتشغيل'));
@@ -37,6 +38,8 @@ ok('no admin-registration UI', !login.includes('setupMode') && !auth.includes('c
 ok('wipe clears localStorage keys', wipe.includes("startsWith('ssp_')"));
 ok('delete-all button label', panel.includes('حذف كل البيانات'));
 ok('rules allow auditLogs delete by super admin', /match \/auditLogs[\s\S]{0,400}allow delete: if isSuperAdmin\(\)/.test(rules));
+ok('settings asks academic path', settings.includes('هل أنت لغات ولا عربي') && settings.includes('بكالوريا') && settings.includes('طب وعلوم حياة') && settings.includes('second-language'));
+ok('settings cascades by stage', settings.includes('STREAMS_BY_STAGE') && settings.includes('handleStageChange'));
 ok('self-registration rules open', rules.includes('التسجيل الذاتي') && rules.includes('allow get: if true') && !rules.includes('freshApp'));
 ok('no admin-device-only error', !app.includes('التسجيل بيتم من جهاز الإدارة'));
 ok('transaction guards existing student', activation.includes('student-exists'));
