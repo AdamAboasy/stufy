@@ -214,6 +214,31 @@ export interface ActivationHistoryItem {
   paymentMethod: string;
 }
 
+/** ============================================================
+ * المسار الدراسي — أسئلة صفحة الإعدادات
+ * (لغات/عربي • عام/أزهر/بكالوريا • الشعبة • مسار وتخصص البكالوريا)
+ * ============================================================ */
+export type LanguageTrack = 'languages' | 'arabic';
+export type EducationSystem = 'general' | 'azhar' | 'baccalaureate';
+/** شعبة العام: تانية ثانوي = أدبي/علمي — تالتة = علوم/رياضة/أدبي */
+export type GeneralStream = 'literary' | 'science' | 'science-math';
+export type BacTrack = 'medicine-life' | 'engineering-computer' | 'business' | 'literature';
+
+export interface AcademicPath {
+  /** لغات ولا عربي */
+  languageTrack: LanguageTrack;
+  /** عام / أزهر (+ بكالوريا في تانية وتالتة ثانوي) */
+  system: EducationSystem;
+  /** شعبة العام (تانية/تالتة ثانوي + عام) */
+  generalStream?: GeneralStream;
+  /** مسار البكالوريا (تانية/تالتة ثانوي) */
+  bacTrack?: BacTrack;
+  /** مادة التخصص داخل المسار */
+  bacSpecialization?: string;
+  /** اللغة التانية — لما التخصص = لغة تانية (آداب) */
+  secondLanguage?: string;
+}
+
 export interface Student {
   id: string;
   studentId: string; // e.g. "STU-2026-8941"
@@ -250,6 +275,8 @@ export interface Student {
   curriculumStageId?: string;
   /** عاداته اليومية اللي بيتبني عليها الجدول */
   studyProfile?: StudyProfile | null;
+  /** المسار الدراسي من صفحة الإعدادات (لغات/عربي، النظام، الشعبة والمسار) */
+  academicPath?: AcademicPath;
   overallProgress: number; // 0-100
   notes?: string;
 }
