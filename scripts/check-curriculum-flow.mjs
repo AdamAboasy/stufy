@@ -19,6 +19,8 @@ const wipe = read('src/lib/wipeService.ts');
 const panel = read('src/components/admin/StudentDeletionPanel.tsx');
 const rules = read('firestore.rules');
 const firebase = read('src/lib/firebase.ts');
+const login = read('src/components/auth/LoginPage.tsx');
+const auth = read('src/lib/authService.ts');
 
 ok('SetupAssistant removed', !app.includes('SetupAssistant') && !app.includes('4 خطوات للتشغيل'));
 ok('dashboard uses StudySetupWizard', dash.includes('StudySetupWizard') && !dash.includes('BookPlanBuilder'));
@@ -28,7 +30,9 @@ ok('planner distributes chapters not pages', planner.includes('chapterTitleAr') 
 ok('planner feasibility', planner.includes('checkCurriculumFeasibility'));
 ok('curriculum preseeded per stage', curriculum.includes('STAGE_CURRICULUM') && curriculum.includes("'sec-3'"));
 ok('wipe deletes auditLogs', wipe.includes('auditLogs'));
-ok('wipe deletes auth account', wipe.includes('user.delete()'));
+ok('wipe keeps the owner account', wipe.includes('accountDeleted: false') && !wipe.includes('user.delete()'));
+ok('wipe skips own staff role', wipe.includes('d.id !== meUid'));
+ok('no admin-registration UI', !login.includes('setupMode') && !auth.includes('createFirstSuperAdmin'));
 ok('wipe clears localStorage keys', wipe.includes("startsWith('ssp_')"));
 ok('delete-all button label', panel.includes('حذف كل البيانات'));
 ok('rules allow auditLogs delete by super admin', /match \/auditLogs[\s\S]{0,400}allow delete: if isSuperAdmin\(\)/.test(rules));

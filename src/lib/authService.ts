@@ -136,44 +136,6 @@ export const setStaffRole = async (
   }
 };
 
-/**
- * هل فيه أي دور إدارة مسجّل في staff؟
- * (بيقرأ قائمة الموظفين — للسوبر أدمن؛ ولغير المسجّل بترجع false بأمان)
- */
-export const countAdmins = async (): Promise<number> => {
-  try {
-    const snapshot = await getDocs(query(collection(db, COLLECTIONS.staff), limit(200)));
-    return snapshot.docs.filter(d => {
-      const role = (d.data() as { role?: UserRole }).role;
-      return role === 'SUPER_ADMIN' || role === 'STUDENT_ADMIN';
-    }).length;
-  } catch {
-    return 0;
-  }
-};
-
-/**
- * هل تم إنهاء تهيئة أول أدمن؟
- * بنقرأ مستند `appMeta/bootstrap` (قراءة عامة مسموحة) بدل قراءة قائمة الموظفين
- * عشان إيميلات الإدارة تفضل خاصة.
- */
-export const superAdminExists = async (): Promise<boolean> => {
-  try {
-    const snap = await getDoc(doc(db, COLLECTIONS.meta, 'bootstrap'));
-    return snap.exists();
-  } catch {
-    return true; // الأأمن: نفترض إن فيه أدمن
-  }
-};
-
-const closeBootstrapWindow = async (): Promise<void> => {
-  await setDoc(
-    doc(db, COLLECTIONS.meta, 'bootstrap'),
-    { initialized: true, initializedAt: serverTimestamp() },
-    { merge: true }
-  ).catch(() => undefined);
-};
-
 /* ------------------------------------------------------------------ */
 /*  Session                                                           */
 /* ------------------------------------------------------------------ */
@@ -231,56 +193,6 @@ export const adminSignIn = async (
       };
     }
     return { ok: true, session };
-  } catch (error) {
-    return { ok: false, error: mapAuthError(errCode(error), isArabic) };
-  }
-};
-
-/** إنشاء أول حساب للسوبر أدمن (مسموح مرة واحدة قبل إقفال نافذة التهيئة) */
-export const createFirstSuperAdmin = async (
-  email: string,
-  password: string,
-  displayName: string,
-  isArabic: boolean
-): Promise<{ ok: boolean; session?: AppSession; error?: string }> => {
-  if (await superAdminExists()) {
-    return {
-      ok: false,
-      error: isArabic
-        ? 'يوجد حساب إدارة بالفعل. سجّل الدخول بحسابك، وأي حساب جديد يضيفه السوبر أدمن.'
-        : 'An admin account already exists. Sign in instead; new admins are created by the Super Admin.'
-    };
-  }
-
-  try {
-    const credential = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-    if (displayName) await updateProfile(credential.user, { displayName }).catch(() => undefined);
-    // 1) الدور الأول (القواعد بتسمح بها في نافذة التهيئة فقط)
-    await saveStaffRole(credential.user.uid, credential.user.email || email, 'SUPER_ADMIN');
-    // 2) إقفال النافذة — بعد كده مفيش حد يقدر يعمل أدمن من المتصفح
-    await closeBootstrapWindow();
-    const session = await resolveSession(credential.user);
-    return { ok: true, session };
-  } catch (error) {
-    return { ok: false, error: mapAuthError(errCode(error), isArabic) };
-  }
-};
-
-/**
- * إنشاء حساب إدارة إضافي — بيتم من داخل جلسة السوبر أدمن.
- * ملاحظة: إنشاء الحساب بيعمل sign-in للمستخدم الجديد، فبعدها لازم الأدمن
- * يعمل دخول تاني (التطبيق بيعرض تنبيه بذلك).
- */
-export const createAdminAccount = async (
-  email: string,
-  password: string,
-  role: UserRole,
-  isArabic: boolean
-): Promise<{ ok: boolean; uid?: string; error?: string }> => {
-  try {
-    const credential = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-    await saveStaffRole(credential.user.uid, credential.user.email || email, role);
-    return { ok: true, uid: credential.user.uid };
   } catch (error) {
     return { ok: false, error: mapAuthError(errCode(error), isArabic) };
   }

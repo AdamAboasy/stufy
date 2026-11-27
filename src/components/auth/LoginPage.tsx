@@ -30,10 +30,6 @@ export interface LoginPageProps {
   onStudentSignIn?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   /** دخول سوبر أدمن عبر Firebase Auth */
   onAdminAuthSignIn?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  /** هل يوجد حساب إدارة؟ (لتحديد شاشة الإعداد الأول) */
-  hasAdminAccount?: boolean | null;
-  /** إنشاء أول حساب سوبر أدمن */
-  onSetupFirstAdmin?: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
   /** إعادة تعيين كلمة مرور حساب الإدارة */
   onAdminPasswordReset?: (email: string) => Promise<{ success: boolean; error?: string }>;
   onRegisterStudent: (data: {
@@ -54,8 +50,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   activeCodes = [],
   onStudentSignIn,
   onAdminAuthSignIn,
-  hasAdminAccount = null,
-  onSetupFirstAdmin,
   onAdminPasswordReset,
   onRegisterStudent,
   onGoToActivation,
@@ -82,16 +76,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
-
-  // إعداد أول حساب إدارة (بيظهر بس لو مفيش أي أدمن)
-  const [setupMode, setSetupMode] = useState(false);
-  const [setupName, setSetupName] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-
-  // أول تشغيل (مفيش أي أدمن): بنفتح وضع الإنشاء تلقائياً بدل ما الطالب يدوّر عليه
-  React.useEffect(() => {
-    if (hasAdminAccount === false) setSetupMode(true);
-  }, [hasAdminAccount]);
 
   /** تصنيف الخطأ عشان نعرض خطوة تالية واضحة بدل رسالة جافة */
   const errorLower = (errorMessage || '').toLowerCase();
@@ -121,22 +105,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           setErrorMessage(
             isArabic ? 'أدخل بريدك الإلكتروني وكلمة المرور (٦ أحرف على الأقل).' : 'Enter your email and password (6+ characters).'
           );
-          return;
-        }
-
-        // إعداد أول حساب إدارة
-        if (setupMode && onSetupFirstAdmin) {
-          if (!setupName.trim()) {
-            setErrorMessage(isArabic ? 'اكتب اسمك.' : 'Please enter your name.');
-            return;
-          }
-          if (password !== confirmPassword) {
-            setErrorMessage(isArabic ? 'كلمتا المرور غير متطابقتين.' : 'Passwords do not match.');
-            return;
-          }
-          const result = await onSetupFirstAdmin(cleanEmail, password, setupName.trim());
-          if (!result.success) setErrorMessage(result.error || 'Setup failed.');
-          else setSuccessMessage(isArabic ? '✅ تم إنشاء حساب السوبر أدمن.' : '✅ Super Admin account created.');
           return;
         }
 
@@ -326,7 +294,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 setRole('SUPER_ADMIN');
                 setEmail('');
                 setPassword('');
-                setConfirmPassword('');
                 setErrorMessage(null);
               }}
               className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
@@ -389,34 +356,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
           )}
 
-          {/* First-run setup: يظهر فقط لو مفيش أي حساب إدارة */}
-          {role === 'SUPER_ADMIN' && hasAdminAccount === false && (
-            <div className="mb-4 p-3 rounded-2xl bg-emerald-950/50 border border-emerald-500/40 text-[11px] text-emerald-200 space-y-2">
-              <div className="font-bold flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4" />
-                {isArabic ? 'إعداد أول حساب سوبر أدمن' : 'First Super Admin setup'}
-              </div>
-              <p className="leading-relaxed">
-                {isArabic
-                  ? 'مفيش أي حساب إدارة على قاعدة البيانات بعد. املأ البيانات واضغط «إنشاء حساب السوبر أدمن» — الخطوة دي متاحة مرة واحدة فقط.'
-                  : 'No admin account exists yet. Fill the form and press “Create Super Admin” — available once only.'}
-              </p>
-              <button
-                type="button"
-                onClick={() => setSetupMode(v => !v)}
-                className={`w-full py-2 rounded-xl text-[11px] font-bold border transition-colors ${
-                  setupMode
-                    ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                    : 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
-                }`}
-              >
-                {setupMode
-                  ? (isArabic ? 'إلغاء وضع الإعداد' : 'Cancel setup mode')
-                  : (isArabic ? 'إنشاء أول حساب سوبر أدمن' : 'Create the first Super Admin')}
-              </button>
-            </div>
-          )}
-
           {/* Error Alert + سبب واضح وخطوة تالية */}
           {errorMessage && (
             <div className="mb-4 p-3.5 rounded-2xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs space-y-2 animate-in fade-in">
@@ -425,24 +364,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <span className="leading-relaxed">{errorMessage}</span>
               </div>
 
-              {/* الحساب مش موجود + فيه أدمن بالفعل ⇒ ده مش أول تشغيل */}
-              {isMissingAccountError && hasAdminAccount !== false && (
+              {/* الحساب مش موجود ⇒ الحساب بيتعمل من Firebase Console مرة واحدة */}
+              {isMissingAccountError && (
                 <p className="text-[11px] text-red-100/90 bg-red-900/40 rounded-xl p-2 leading-relaxed">
                   {isArabic
-                    ? 'حساب الإدارة موجود بالفعل على قاعدة البيانات — الدخول هنا بيحتاج إيميل وكلمة المرور اللي اتسجلوا أول مرة. مفيش خطوة «إنشاء» تانية.'
-                    : 'The admin account already exists in the database — signing in needs the email and password registered the first time. There is no second “create” step.'}
+                    ? 'حساب الإدارة واحد وثابت — التطبيق مش بيعمل حسابات إدارة. لو الحساب مش موجود، اتعمله مرة واحدة من Firebase Console → Authentication → Users، وبعدها يقدر يدخل من هنا. مفيش خطوة «إنشاء» جوه التطبيق.'
+                    : 'There is exactly one admin account and the app never creates admin accounts. If it is missing, create it once in Firebase Console → Authentication → Users, then sign in here. There is no “create” step inside the app.'}
                 </p>
-              )}
-
-              {/* البيانات غلط + أول تشغيل ⇒ المفروض ينشئ حساب */}
-              {isMissingAccountError && hasAdminAccount === false && !setupMode && (
-                <button
-                  type="button"
-                  onClick={() => setSetupMode(true)}
-                  className="w-full py-2 rounded-xl text-[11px] font-bold bg-emerald-500 text-slate-950"
-                >
-                  {isArabic ? 'مفيش حساب بعد — اضغط لإنشاء أول سوبر أدمن' : 'No account yet — create the first Super Admin'}
-                </button>
               )}
 
               {/* Email/Password مقفول في Console */}
@@ -573,26 +501,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             )}
 
-            {/* Setup: admin display name */}
-            {role === 'SUPER_ADMIN' && setupMode && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {isArabic ? 'اسم المسؤول' : 'Admin name'}
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    value={setupName}
-                    onChange={(e) => setSetupName(e.target.value)}
-                    placeholder={isArabic ? 'مثال: آدم شريف' : 'e.g. Adam Sherif'}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
-                  />
-                  <User className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
-                </div>
-              </div>
-            )}
-
             {/* Field 2: Email */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -650,26 +558,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
-            {/* Setup: confirm password */}
-            {role === 'SUPER_ADMIN' && setupMode && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {isArabic ? 'تأكيد كلمة المرور' : 'Confirm password'}
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-brand-blue-electric text-white text-xs pl-10 rtl:pl-4 rtl:pr-10"
-                  />
-                  <Lock className="w-4 h-4 text-slate-400 absolute top-3 left-3.5 rtl:left-auto rtl:right-3.5" />
-                </div>
-              </div>
-            )}
-
             {/* Field 4: Activation Code (Student Register Mode Only) */}
             {role === 'STUDENT' && studentAuthMode === 'register' && (
               <div className="p-3 rounded-2xl bg-brand-blue/10 border border-brand-blue/30 space-y-2">
@@ -716,11 +604,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               ) : role === 'SUPER_ADMIN' ? (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>
-                    {setupMode
-                      ? (isArabic ? 'إنشاء حساب السوبر أدمن' : 'Create Super Admin account')
-                      : (isArabic ? 'دخول لوحة المشرف العام' : 'Sign In as Super Admin')}
-                  </span>
+                  <span>{isArabic ? 'دخول لوحة المشرف العام' : 'Sign In as Super Admin'}</span>
                 </>
               ) : studentAuthMode === 'register' ? (
                 <>

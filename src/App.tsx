@@ -43,11 +43,8 @@ import {
   watchSession,
   adminSignIn,
   adminSignOut,
-  createFirstSuperAdmin,
-  superAdminExists,
   sendAdminPasswordReset,
   studentEnsureAccount,
-  countAdmins,
   studentSignIn,
   linkStudentAccount,
   setStudentAdminRole,
@@ -74,7 +71,6 @@ export const App: React.FC = () => {
   /* ---------- Authentication (Firebase Auth — no passwords in code) ---------- */
   const [session, setSession] = useState<AppSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [hasAdminAccount, setHasAdminAccount] = useState<boolean | null>(null);
 
   const isAuthenticated = isAdminRole(session?.role);
   const adminEmail = session?.email || '';
@@ -158,21 +154,6 @@ export const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // هل يوجد حساب إدارة؟ (لتحديد هل نعرض شاشة الإعداد الأول)
-  useEffect(() => {
-    let cancelled = false;
-    superAdminExists()
-      .then(exists => {
-        if (!cancelled) setHasAdminAccount(exists);
-      })
-      .catch(() => {
-        if (!cancelled) setHasAdminAccount(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // استرجاع جلسة الطالب: بعد ما Firebase Auth يرجّع المستخدم بنقرأ ملفه هو بس
   useEffect(() => {
     if (!authReady || currentStudent) return;
@@ -239,29 +220,11 @@ export const App: React.FC = () => {
     }
     setSession(result.session);
     setActiveTab('students');
-    setHasAdminAccount(true);
     showToast(
       isArabic
         ? `تم تسجيل الدخول بنجاح! أهلاً ${result.session.displayName || 'بك'} في لوحة الإدارة.`
         : `Signed in successfully. Welcome ${result.session.displayName || ''}!`
     );
-    return { success: true };
-  };
-
-  /** إعداد أول سوبر أدمن (مرة واحدة) */
-  const handleSetupFirstAdmin = async (
-    email: string,
-    password: string,
-    name: string
-  ): Promise<{ success: boolean; error?: string }> => {
-    const result = await createFirstSuperAdmin(email, password, name, isArabic);
-    if (!result.ok || !result.session) {
-      return { success: false, error: result.error };
-    }
-    setSession(result.session);
-    setHasAdminAccount(true);
-    setActiveTab('students');
-    showToast(isArabic ? '🎉 تم إنشاء حساب السوبر أدمن بنجاح.' : '🎉 Super Admin account created.');
     return { success: true };
   };
 
@@ -914,48 +877,27 @@ export const App: React.FC = () => {
      تصفير النظام (Super Admin only) — بداية نظيفة
      ============================================================ */
   const handleResetAllData = async () => {
-    const report = await wipeAllAppData(isSuperAdmin ? 'SUPER_ADMIN' : 'STUDENT_ADMIN');
+    const report = await wipeAllAppData();
 
     // بيانات الواجهة تتمسح فوراً — مفيش أي نسخة قديمة بتفضل معروضة
     setStudents([]);
     setActivationCodes([]);
     setAuditLogs([]);
-    setCurrentStudent(null);
-    setSelectedStudent(null);
-    setEditingStudent(null);
-    setSupportModeStudent(null);
     setStudentsLoaded(true);
-
-    // الحساب نفسه اتمسح ⇒ خروج كامل والتطبيق يقف على صفحة التأسيس
-    if (report.accountDeleted) {
-      setSession(null);
-      setHasAdminAccount(false);
-      setActiveTab('login');
-    } else {
-      // Firebase رفض حذف الحساب (دخول قديم) — الخدمة رجّعت الدور،
-      // فبنعمل خروج ونقفل على صفحة الدخول النضيفة.
-      await adminSignOut().catch(() => undefined);
-      setSession(null);
-      const adminsLeft = await countAdmins().catch(() => 0);
-      setHasAdminAccount(adminsLeft > 0);
-      setActiveTab('login');
-    }
 
     const summary = isArabic
       ? `اتحذف: ${Object.entries(report.deleted)
           .map(([key, value]) => `${key} ${value}`)
-          .join(' • ')}${
-          report.accountDeleted ? ' • حساب الدخول' : ''
-        }`
+          .join(' • ')} • حسابك محفوظ`
       : `Deleted: ${Object.entries(report.deleted)
           .map(([key, value]) => `${key} ${value}`)
-          .join(' • ')}${report.accountDeleted ? ' • sign-in account' : ''}`;
+          .join(' • ')} • your account kept`;
 
     showToast(
       report.ok
         ? isArabic
-          ? '✅ تم حذف كل البيانات نهائياً — التطبيق رجع لحالة أول مرة.'
-          : '✅ Everything was permanently deleted — the app is back to its first-run state.'
+          ? '✅ تم حذف كل البيانات — حسابك لسه شغّال ومحدش غيرك يقدر يدخل.'
+          : '✅ All data deleted — your account still works and nobody else can sign in.'
         : isArabic
         ? '⚠️ تم الحذف لكن فيه عناصر فشلت — شوف التفاصيل.'
         : '⚠️ Deletion finished but some items failed — see details.'
@@ -1191,8 +1133,6 @@ export const App: React.FC = () => {
         activeCodes={activationCodes}
         onStudentSignIn={handleStudentSignIn}
         onAdminAuthSignIn={handleAdminAuthSignIn}
-        hasAdminAccount={hasAdminAccount}
-        onSetupFirstAdmin={handleSetupFirstAdmin}
         onAdminPasswordReset={handleAdminPasswordReset}
         onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
@@ -1209,8 +1149,6 @@ export const App: React.FC = () => {
         activeCodes={activationCodes}
         onStudentSignIn={handleStudentSignIn}
         onAdminAuthSignIn={handleAdminAuthSignIn}
-        hasAdminAccount={hasAdminAccount}
-        onSetupFirstAdmin={handleSetupFirstAdmin}
         onAdminPasswordReset={handleAdminPasswordReset}
         onRegisterStudent={handleRegisterStudent}
         onGoToActivation={() => setActiveTab('activation_page')}
@@ -1253,8 +1191,6 @@ export const App: React.FC = () => {
           activeCodes={activationCodes}
           onStudentSignIn={handleStudentSignIn}
           onAdminAuthSignIn={handleAdminAuthSignIn}
-          hasAdminAccount={hasAdminAccount}
-          onSetupFirstAdmin={handleSetupFirstAdmin}
           onAdminPasswordReset={handleAdminPasswordReset}
           onRegisterStudent={handleRegisterStudent}
           onGoToActivation={() => setActiveTab('activation_page')}
