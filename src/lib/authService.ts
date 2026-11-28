@@ -3,9 +3,8 @@
  * =====================================
  * - كلمة السر مش موجودة في الكود نهائياً (بتتخزن مشفّرة في Firebase).
  * - الأدوار بتتقرأ من مستند الموظف `staff/{uid}`: SUPER_ADMIN / STUDENT_ADMIN / STUDENT.
- * - أول مرة: لو مفيش أي أدمن، بنعمل واحد من نفس شاشة الدخول (Setup)، وبنقفل
- *   «نافذة التهيئة» بكتابة مستند `appMeta/bootstrap` — بعدها قواعد الأمان
- *   بترفض أي محاولة إنشاء أدمن جديد من المتصفح.
+ * - أول SUPER_ADMIN بيتعمل يدوياً من Firebase Console (FIREBASE_SETUP.md) —
+ *   قواعد الأمان بترفض إنشاء أي أدمن من المتصفح.
  * - الطلبة كمان عندهم حساب Firebase Auth حقيقي (إيميل + كلمة سر).
  *
  * All authentication is real Firebase Auth. Roles live in `staff/{uid}`.
@@ -24,11 +23,7 @@ import {
   doc,
   getDoc,
   setDoc,
-  serverTimestamp,
-  collection,
-  getDocs,
-  limit,
-  query
+  serverTimestamp
 } from 'firebase/firestore';
 import { auth, db, COLLECTIONS } from './firebase';
 import { UserRole } from '../types';
@@ -289,27 +284,17 @@ export const deleteCurrentAuthUser = async (): Promise<void> => {
   }
 };
 
-/** رفع الطالب لأدمن طالب أو إلغاء الصلاحية (بيتطلب جلسة سوبر أدمن) */
+/**
+ * رفع الطالب لأدمن طالب أو إلغاء الصلاحية (بيتطلب جلسة سوبر أدمن).
+ * معرّف مستند الطالب = uid بتاع Auth، فمفيش بحث بالإيميل ولا حد أقصى 200.
+ */
 export const setStudentAdminRole = async (
   email: string,
   studentId: string,
   promote: boolean
 ): Promise<boolean> => {
   try {
-    // نلاقي uid من مستندات staff بالبريد
-    const snapshot = await getDocs(
-      query(collection(db, COLLECTIONS.staff), limit(200))
-    );
-    const target = snapshot.docs.find(
-      d => String((d.data() as { email?: string }).email || '').toLowerCase() === email.toLowerCase()
-    );
-    if (!target) return false;
-    await saveStaffRole(
-      target.id,
-      email,
-      promote ? 'STUDENT_ADMIN' : 'STUDENT',
-      studentId
-    );
+    await saveStaffRole(studentId, email, promote ? 'STUDENT_ADMIN' : 'STUDENT', studentId);
     return true;
   } catch {
     return false;

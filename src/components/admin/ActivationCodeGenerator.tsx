@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { GeneratedActivationCode, SubscriptionPlan, Student } from '../../types';
+import { generateActivationCodeString } from '../../lib/ids';
 import { 
   KeyRound, 
   Plus, 
@@ -22,6 +23,7 @@ interface ActivationCodeGeneratorProps {
   codes: GeneratedActivationCode[];
   students: Student[];
   isArabic: boolean;
+  adminName: string;
   onGenerateCode: (newCode: GeneratedActivationCode) => void;
   onRevokeCode: (codeId: string) => void;
 }
@@ -30,6 +32,7 @@ export const ActivationCodeGenerator: React.FC<ActivationCodeGeneratorProps> = (
   codes,
   students,
   isArabic,
+  adminName,
   onGenerateCode,
   onRevokeCode
 }) => {
@@ -57,9 +60,8 @@ export const ActivationCodeGenerator: React.FC<ActivationCodeGeneratorProps> = (
 
     const planPrefix = selectedPlan === 'Elite VIP' ? 'ELITE' : selectedPlan.toUpperCase().replace(/\s+/g, '');
     const prefix = customPrefix.trim() ? customPrefix.trim().toUpperCase() : `SSP-${planPrefix}`;
-    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
     const year = new Date().getFullYear();
-    const codeString = `${prefix}-${year}-${randomSuffix}`;
+    const codeString = generateActivationCodeString(prefix, year);
 
     const now = new Date();
     const expiry = new Date(now);
@@ -68,7 +70,7 @@ export const ActivationCodeGenerator: React.FC<ActivationCodeGeneratorProps> = (
     const targetStudent = students.find(s => s.id === assignedStudentId);
 
     const newCode: GeneratedActivationCode = {
-      id: `code-${Date.now()}`,
+      id: codeString,
       code: codeString,
       plan: selectedPlan,
       durationMonths: Number(durationMonths),
@@ -79,7 +81,7 @@ export const ActivationCodeGenerator: React.FC<ActivationCodeGeneratorProps> = (
       assignedStudentId: targetStudent?.studentId,
       assignedStudentName: targetStudent ? (isArabic ? targetStudent.fullNameAr : targetStudent.fullName) : undefined,
       notes: notes.trim() || undefined,
-      createdByName: 'Adam Sherif (Super Admin)',
+      createdByName: adminName,
     };
 
     onGenerateCode(newCode);

@@ -29,7 +29,7 @@ import {
 import {
   subscribeActivationCodes,
   saveActivationCode,
-  markCodeRedeemed,
+  renewStudentWithCode,
   revokeActivationCode,
   getActivationCode,
   redeemCodeAndCreateStudent,
@@ -38,6 +38,9 @@ import {
 
 import { subscribeAuditLogs, pushAuditLog } from './lib/auditService';
 import { initAnalytics } from './lib/firebase';
+import { generateStudentCode } from './lib/ids';
+import { initialsAvatar } from './lib/avatar';
+import { currentDeviceInfo } from './lib/device';
 import { wipeAllAppData } from './lib/wipeService';
 import {
   watchSession,
@@ -89,6 +92,9 @@ export const App: React.FC = () => {
 
   /* ---------- Authentication (Firebase Auth — no passwords in code) ---------- */
   const [session, setSession] = useState<AppSession | null>(null);
+  // هوية الأدمن الفعلي (من جلسة Firebase) تتسجّل في سجل التدقيق
+  const adminId = session?.uid || 'UNKNOWN-ADMIN';
+  const adminName = session?.displayName || session?.email || 'Admin';
   const [authReady, setAuthReady] = useState(false);
 
   const isAuthenticated = isAdminRole(session?.role);
@@ -492,7 +498,7 @@ export const App: React.FC = () => {
       };
     }
 
-    const newStudentId = `STU-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newStudentId = generateStudentCode(new Date().getFullYear());
     // معرّف المستند = uid بتاع Auth ⇒ القواعد تقدر تتحقق إن الطالب بيعدّل ملفه هو
     const newStudentInternalId = account.uid;
     const nowIso = new Date().toISOString();
@@ -503,16 +509,13 @@ export const App: React.FC = () => {
       studentId: newStudentId,
       fullName: data.fullName,
       fullNameAr: data.fullName,
-      email: data.email,
-      phoneNumber: data.phoneNumber?.trim() || '+20 100 000 0000',
+      email: data.email.trim().toLowerCase(),
+      phoneNumber: data.phoneNumber?.trim() || '',
       guardianPhoneNumber: '',
-      nationalId: `304051${Math.floor(10000000 + Math.random() * 90000000)}`,
+      nationalId: '',
       gender: data.gender || 'male',
       isAdmin: false,
-      avatarUrl:
-        data.gender === 'female'
-          ? 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80'
-          : 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
+      avatarUrl: initialsAvatar(data.fullName),
       academicYear: findAcademicStage(data.stage)?.labelEn || '3rd Secondary (Thanawya)',
       academicYearAr: findAcademicStage(data.stage)?.labelAr || 'الصف الثالث الثانوي',
       // السنة اللي اختارها وقت التسجيل — بيبدأ منها المنهج (ويقدر يغيّرها في الإعداد)
@@ -523,21 +526,9 @@ export const App: React.FC = () => {
       registrationDate: nowIso,
       subscriptionExpiryDate: expiryDate,
       lastActivity: nowIso,
-      overallProgress: 15,
+      overallProgress: 0,
       notes: `Registered via activation code ${cleanCode}`,
-      registeredDevices: [
-        {
-          id: `dev-${Date.now()}`,
-          deviceName: 'متصفح الويب (الجهاز الحالي)',
-          deviceType: 'desktop',
-          os: 'Windows 11 Pro 64-bit',
-          browser: 'Chrome 131.0',
-          ipAddress: '197.34.120.45 (Cairo, Egypt)',
-          deviceFingerprint: `FP-${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
-          lastActive: nowIso,
-          isCurrent: true
-        }
-      ],
+      registeredDevices: [currentDeviceInfo(nowIso)],
       uploadedPdfs: [],
       // مفيش مواد/مهام جاهزة — الخطة بتتبني من كتاب الطالب وموعد الامتحان
       subjects: [],
@@ -570,7 +561,7 @@ export const App: React.FC = () => {
           activatedAt: nowIso,
           expiresAt: expiryDate,
           status: 'Active',
-          paymentReference: `VOUCHER-${Math.floor(100000 + Math.random() * 900000)}`,
+          paymentReference: `VOUCHER-${cleanCode}`,
           paymentMethod: 'Activation Code'
         }
       ]
@@ -692,8 +683,8 @@ export const App: React.FC = () => {
     // Log the creation in Audit Trail
     const newAuditLog: AuditLog = {
       id: `log-code-gen-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-ADAM',
-      adminName: 'Adam Sherif (Super Admin)',
+      adminId: adminId,
+      adminName: adminName,
       targetStudentId: newCode.assignedStudentId || 'GENERAL-VOUCHER',
       studentName: newCode.assignedStudentName || 'Unassigned Voucher',
       actionSource: 'ADMIN',
@@ -742,49 +733,20 @@ export const App: React.FC = () => {
 
     // 1) طالب مسجّل بالفعل: بيرقّي باقته الحالية
     if (currentStudent) {
-      const expiryIso = new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString();
-      const updatedStudent: Student = {
-        ...currentStudent,
-        subscriptionPlan: (matchedPlan as SubscriptionPlan) || 'Pro',
-        status: 'Active',
-        subscriptionExpiryDate: expiryIso,
-        activationHistory: [
-          {
-            id: `act-${Date.now()}`,
-            code: cleanCode,
-            plan: (matchedPlan as SubscriptionPlan) || 'Pro',
-            durationMonths: 6,
-            activatedAt: nowIso,
-            expiresAt: expiryIso,
-            status: 'Active',
-            paymentReference: 'VOUCHER-REDEEM',
-            paymentMethod: 'Activation Code'
-          },
-          ...currentStudent.activationHistory
-        ]
-      };
-
-      const saved = await upsertStudent(updatedStudent);
-      if (!saved.ok) {
-        return {
-          success: false,
-          error: isArabic
-            ? `تعذّر حفظ التفعيل في قاعدة البيانات (${saved.error}).`
-            : `Could not save the activation (${saved.error}).`
-        };
+      // تجديد ذرّي: الخطة والمدة من الكود نفسه + استهلاكه في معاملة واحدة
+      const renewed = await renewStudentWithCode({ code: cleanCode, student: currentStudent });
+      if (!renewed.ok || !renewed.student) {
+        const reason =
+          renewed.error === 'code-redeemed'
+            ? isArabic ? 'الكود مستخدم بالفعل.' : 'This code was already redeemed.'
+            : renewed.error === 'code-revoked'
+            ? isArabic ? 'الكود ملغي.' : 'This code was revoked.'
+            : renewed.error === 'code-missing'
+            ? isArabic ? 'الكود غير موجود.' : 'Code not found.'
+            : describeDataError(renewed.error || 'unknown', isArabic);
+        return { success: false, error: `❌ ${reason}` };
       }
-      const marked = await markCodeRedeemed(cleanCode, {
-        id: updatedStudent.id,
-        studentId: updatedStudent.studentId,
-        fullName: updatedStudent.fullName
-      });
-      if (!marked.ok) {
-        showToast(
-          isArabic
-            ? `⚠️ تم تجديد الباقة بس الكود ما اتعلّمش «مستخدم» (${marked.error}).`
-            : `⚠️ Plan renewed but the code was not marked as redeemed (${marked.error}).`
-        );
-      }
+      const updatedStudent = renewed.student;
       setStudents(prev => prev.map(s => (s.id === updatedStudent.id ? updatedStudent : s)));
       setCurrentStudent(updatedStudent);
       setActiveTab('student_dashboard');
@@ -885,8 +847,8 @@ export const App: React.FC = () => {
 
     const newAuditLog: AuditLog = {
       id: `log-dev-revoke-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-ADAM',
-      adminName: 'Adam Sherif (Super Admin)',
+      adminId: adminId,
+      adminName: adminName,
       targetStudentId: targetStudent.studentId,
       studentName: targetStudent.fullName,
       actionSource: 'ADMIN',
@@ -957,8 +919,8 @@ export const App: React.FC = () => {
 
     const newAuditLog: AuditLog = {
       id: `log-del-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-ADAM',
-      adminName: 'Adam Sherif (Super Admin)',
+      adminId: adminId,
+      adminName: adminName,
       targetStudentId: student.studentId,
       studentName: student.fullName,
       actionSource: 'ADMIN',
@@ -1048,8 +1010,8 @@ export const App: React.FC = () => {
 
     const newAuditLog: AuditLog = {
       id: `log-role-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-ADAM',
-      adminName: 'Adam Sherif (Super Admin)',
+      adminId: adminId,
+      adminName: adminName,
       targetStudentId: student.studentId,
       studentName: student.fullName,
       actionSource: 'ADMIN',
@@ -1193,24 +1155,25 @@ export const App: React.FC = () => {
   const handleLogPasswordReset = (studentId: string, studentName: string) => {
     const newAuditLog: AuditLog = {
       id: `log-pwd-rst-${Date.now()}`,
-      adminId: 'ADMIN-SUPER-ADAM',
-      adminName: 'Adam Sherif (Super Admin)',
+      adminId: adminId,
+      adminName: adminName,
       targetStudentId: studentId,
       studentName: studentName,
       actionSource: 'ADMIN',
       changedField: 'passwordResetWorkflow',
-      oldValue: 'Existing Password Hash',
-      newValue: 'Generated Single-Use Encrypted Reset Token',
-      reason: 'Super Admin initiated secure password reset workflow without exposing plaintext passwords',
+      oldValue: '—',
+      newValue: 'Firebase password-reset email sent',
+      reason: 'Admin sent an official password reset email (no password exposed)',
       timestamp: new Date().toISOString()
     };
 
     setAuditLogs(prev => [newAuditLog, ...prev]);
+    pushAuditLog(newAuditLog);
 
     showToast(
       isArabic
-        ? 'تم إنشاء رمز إعادة ضبط كلمة المرور المشفر وتوثيق الإجراء في السجل الأمني.'
-        : 'Encrypted password reset token issued and recorded in audit trail.'
+        ? 'تم إرسال رسالة إعادة ضبط كلمة المرور وتوثيق الإجراء في السجل.'
+        : 'Password reset email sent and recorded in the audit log.'
     );
   };
 
@@ -1496,7 +1459,7 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-1.5 sm:gap-2 pl-1.5 rtl:pl-0 rtl:pr-1.5 border-l rtl:border-l-0 rtl:border-r border-slate-800">
               <div className="hidden sm:flex flex-col text-right rtl:text-left text-xs">
                 <span className="font-bold text-white leading-none">
-                  {isSuperAdmin ? 'Adam Sherif' : (isArabic ? currentStudent?.fullNameAr : currentStudent?.fullName) || 'Student Admin'}
+                  {isSuperAdmin ? adminName : (isArabic ? currentStudent?.fullNameAr : currentStudent?.fullName) || 'Student Admin'}
                 </span>
                 <span className="text-[10px] text-purple-400 font-mono mt-0.5 truncate max-w-[140px]" dir="ltr">
                   {isSuperAdmin ? adminEmail : (isArabic ? 'أدمن طالب' : 'Student Admin')}
@@ -1577,6 +1540,7 @@ export const App: React.FC = () => {
         {activeTab === 'code_generator' && (
           <ActivationCodeGenerator
             isArabic={isArabic}
+            adminName={adminName}
             codes={activationCodes}
             students={students}
             onGenerateCode={handleGenerateCode}
