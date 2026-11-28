@@ -27,7 +27,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { db, auth, COLLECTIONS } from './firebase';
-import { GeneratedActivationCode } from '../types';
+import { GeneratedActivationCode, Student, SubscriptionPlan } from '../types';
 
 const codesCol = () => collection(db, COLLECTIONS.activationCodes);
 
@@ -173,6 +173,83 @@ export const redeemCodeAndCreateStudent = async (params: {
     if (message === 'code-redeemed') return { ok: false, error: 'code-redeemed' };
     if (message === 'code-revoked') return { ok: false, error: 'code-revoked' };
     if (message === 'student-exists') return { ok: false, error: 'student-exists' };
+    return { ok: false, error: errCode(error) };
+  }
+};
+
+/**
+ * تجديد/ترقية باقة طالب موجود بكود حقيقي — معاملة ذرّية.
+ * الخطة والمدة بتتقرأ من **مستند الكود نفسه** (مش من الواجهة)، والقواعد
+ * بتتأكد بـ getAfter إن الكود اتعلّم Redeemed بنفس الطالب وبنفس الباقة.
+ */
+export const renewStudentWithCode = async (params: {
+  code: string;
+  student: Student;
+}): Promise<{ ok: boolean; error?: string; student?: Student }> => {
+  const codeRef = doc(db, COLLECTIONS.activationCodes, docId(params.code));
+  const studentRef = doc(db, COLLECTIONS.students, params.student.id);
+  try {
+    const updated = await runTransaction(db, async transaction => {
+      const codeSnap = await transaction.get(codeRef);
+      if (!codeSnap.exists()) throw new Error('code-missing');
+      const code = codeSnap.data() as GeneratedActivationCode;
+      if (code.status === 'Redeemed') throw new Error('code-redeemed');
+      if (code.status !== 'Active') throw new Error('code-revoked');
+
+      const now = new Date();
+      const base =
+        params.student.subscriptionExpiryDate &&
+        new Date(params.student.subscriptionExpiryDate).getTime() > now.getTime()
+          ? new Date(params.student.subscriptionExpiryDate)
+          : now;
+      const expiry = new Date(base);
+      expiry.setMonth(expiry.getMonth() + Number(code.durationMonths));
+
+      const plan = code.plan as SubscriptionPlan;
+      const history = [
+        {
+          id: `act-${now.getTime()}`,
+          code: docId(params.code),
+          plan,
+          durationMonths: code.durationMonths,
+          activatedAt: now.toISOString(),
+          expiresAt: expiry.toISOString(),
+          status: 'Active' as const,
+          paymentReference: `VOUCHER-${docId(params.code)}`,
+          paymentMethod: 'Activation Code'
+        },
+        ...(params.student.activationHistory || [])
+      ];
+
+      transaction.update(studentRef, {
+        subscriptionPlan: plan,
+        status: 'Active',
+        subscriptionExpiryDate: expiry.toISOString(),
+        activationHistory: history,
+        updatedAt: serverTimestamp()
+      });
+      transaction.update(codeRef, {
+        status: 'Redeemed',
+        assignedStudentId: params.student.studentId,
+        assignedStudentName: params.student.fullName,
+        redeemedAt: now.toISOString(),
+        redeemedByUid: params.student.id
+      });
+
+      return {
+        ...params.student,
+        subscriptionPlan: plan,
+        status: 'Active' as const,
+        subscriptionExpiryDate: expiry.toISOString(),
+        activationHistory: history
+      } as Student;
+    });
+    return { ok: true, student: updated };
+  } catch (error) {
+    const message = (error as Error)?.message;
+    if (['code-missing', 'code-redeemed', 'code-revoked'].includes(message)) {
+      return { ok: false, error: message };
+    }
     return { ok: false, error: errCode(error) };
   }
 };

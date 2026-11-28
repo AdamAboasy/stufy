@@ -16,6 +16,7 @@ import {
   deleteDoc,
   getDoc,
   getDocsFromServer,
+  getCountFromServer,
   getDocFromServer,
   onSnapshot,
   query,
@@ -134,8 +135,9 @@ export const emailExists = async (email: string): Promise<boolean> => {
 };
 
 export const countStudents = async (): Promise<number> => {
-  const list = await fetchStudentsFromServer();
-  return list.length;
+  // عدّاد على السيرفر — مش بيحمّل كل المستندات
+  const snapshot = await getCountFromServer(studentsCol());
+  return snapshot.data().count;
 };
 
 /* ------------------------------------------------------------------ */

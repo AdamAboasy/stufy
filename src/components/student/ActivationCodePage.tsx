@@ -48,7 +48,7 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
   const [success, setSuccess] = useState<string | null>(null);
   const [redirecting, setRedirecting] = useState(false);
 
-  const handleActivate = (e: React.FormEvent) => {
+  const handleActivate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
@@ -82,65 +82,29 @@ export const ActivationCodePage: React.FC<ActivationCodePageProps> = ({
 
     setLoading(true);
 
-    setTimeout(async () => {
-      setLoading(false);
+    // التفعيل الحقيقي: النجاح بيتعرض بس بعد ما قاعدة البيانات تأكّد.
+    // الخطة والمدة بتتقرأ من مستند الكود على السيرفر، مش من الواجهة.
+    let result: { success: boolean; error?: string } | undefined;
+    try {
+      result = await onActivateSuccess?.(cleanCode, undefined, studentName, studentEmail, studentPassword);
+    } catch {
+      result = { success: false };
+    }
+    setLoading(false);
 
-      // Check against generated codes
-      const matched = activeCodes.find(c => c.code.toUpperCase() === cleanCode);
-      if (matched) {
-        if (matched.status === 'Redeemed') {
-          setError(isArabic ? 'هذا الكود تم تفعيله واستخدامه مسبقاً.' : 'This activation code has already been redeemed.');
-          return;
-        }
-        if (matched.status === 'Revoked') {
-          setError(isArabic ? 'هذا الكود تم إلغاؤه من قبل الإدارة.' : 'This activation code has been revoked by admin.');
-          return;
-        }
-
-        const planName = matched.plan;
-        setSuccess(
-          isArabic
-            ? `🎉 تم بنجاح تفعيل باقة (${matched.plan}) لمدة (${matched.durationMonths}) شهر! جاري تحويلك للصفحة الرئيسية...`
-            : `🎉 Activation successful! Unlocked (${matched.plan}) plan. Redirecting to your home page...`
-        );
-        setRedirecting(true);
-
-        setTimeout(async () => {
-          const result = await onActivateSuccess?.(cleanCode, planName, studentName, studentEmail, studentPassword);
-          if (result && !result.success) {
-            setRedirecting(false);
-            setSuccess(null);
-            setError(result.error || (isArabic ? 'تعذّر إكمال التفعيل.' : 'Could not complete activation.'));
-          }
-        }, 1200);
-        return;
-      }
-
-      // General fallback voucher pattern
-      if (cleanCode.startsWith('SSP-') || cleanCode.includes('2026') || cleanCode.length >= 8) {
-        setSuccess(
-          isArabic 
-            ? '🎉 تم تفعيل باقة الاشتراك بنجاح! جاري نقلك إلى صفحتك الرئيسية...' 
-            : '🎉 Activation successful! Redirecting to your main home page...'
-        );
-        setRedirecting(true);
-
-        setTimeout(async () => {
-          const result = await onActivateSuccess?.(cleanCode, 'Pro', studentName, studentEmail, studentPassword);
-          if (result && !result.success) {
-            setRedirecting(false);
-            setSuccess(null);
-            setError(result.error || (isArabic ? 'تعذّر إكمال التفعيل.' : 'Could not complete activation.'));
-          }
-        }, 1200);
-      } else {
-        setError(
-          isArabic 
-            ? 'هذا الكود غير مسجل أو منتهي الصلاحية. تواصل مع الدعم الفني على واتساب للحصول على كود صالح.' 
-            : 'This code is unrecognized or expired. Please contact support on WhatsApp to obtain a valid code.'
-        );
-      }
-    }, 600);
+    if (!result || !result.success) {
+      setError(
+        result?.error ||
+          (isArabic ? 'تعذّر إكمال التفعيل. تأكد من الكود وحاول مرة أخرى.' : 'Could not complete activation. Check the code and try again.')
+      );
+      return;
+    }
+    setSuccess(
+      isArabic
+        ? '🎉 تم التفعيل بنجاح! جاري تحويلك للصفحة الرئيسية...'
+        : '🎉 Activation successful! Redirecting to your home page...'
+    );
+    setRedirecting(true);
   };
 
   return (

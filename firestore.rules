@@ -1,19 +1,21 @@
 rules_version = '2';
 
 // ============================================================
-// Smart Study Planner — Firestore security rules (PRODUCTION)
+// Smart Study Planner — Firestore security rules (v2 — hardened)
 // نشر: انسخ الملف كله والصقه في Console → Firestore → Rules → Publish
 //
 // الموديل الأمني:
-//  - كل الكتابة/القراءة للبيانات الحساسة لازم تكون من مستخدم مسجّل (Firebase Auth).
-//  - الدور بيتقرأ من مستند `staff/{uid}` (SUPER_ADMIN / STUDENT_ADMIN / STUDENT).
-//  - الطالب بيشوف ويعدّل ملفه هو بس (معرّف مستنده = uid بتاعه).
-//  - الأدوار العليا (staff) بيكتبها أول أدمن فقط في «نافذة التهيئة» قبل ما
-//    مستند `appMeta/bootstrap` يتكتب، وبعد كده السوبر أدمن بس.
+//  - الأدوار في `staff/{uid}` (SUPER_ADMIN / STUDENT_ADMIN / STUDENT).
+//  - أول SUPER_ADMIN بيتعمل **يدوياً** من Console (FIREBASE_SETUP.md §3) —
+//    مفيش «نافذة تهيئة» مفتوحة من المتصفح بعد كده.
+//  - الطالب يقدر ينشئ دور STUDENT لنفسه بس، وبعد ما ملفه موجود.
+//  - إنشاء ملف طالب ذاتياً لازم يكون مربوط بكود تفعيل Active بنفس الباقة،
+//    ويتعلّم Redeemed في نفس المعاملة (getAfter).
+//  - حقول الاشتراك/الحالة/الصلاحيات مقفولة على الطالب؛ التجديد بكود فقط.
 //
-// Security model: every sensitive read/write needs a signed-in Firebase Auth
-// user. Roles live in `staff/{uid}`. A student only touches their own
-// document (doc id == uid). See FIREBASE_SETUP.md §8.
+// Hardened model: first SUPER_ADMIN is created manually in the Console; a
+// student can never self-assign subscription/admin fields, only redeem a
+// real Active code in the same transaction/batch.
 // ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -22,8 +24,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function staffDoc() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid));
+    }
+
     function staffRole() {
-      return signedIn() ? get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role : null;
+      return signedIn() && exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+        ? staffDoc().data.role
+        : null;
     }
 
     function isSuperAdmin() {
@@ -38,76 +46,104 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == studentId;
     }
 
-    // نافذة التهيئة: مفتوحة بس قبل ما أول أدمن يقفلها
-    function bootstrapOpen() {
-      return !exists(/databases/$(database)/documents/appMeta/bootstrap);
+    function codePath(code) {
+      return /databases/$(database)/documents/activationCodes/$(code);
+    }
+
+    // الكود المستخدم = أحدث عنصر في activationHistory (بيتحط وقت التسجيل/التجديد)
+    function usedCodeId(data) {
+      return data.activationHistory[0].code;
+    }
+
+    // الكود كان Active قبل العملية، واتعلّم Redeemed بنفس المستخدم بعدها،
+    // وباقة الطالب = باقة الكود.
+    function codeRedeemedByMeFor(plan, codeId) {
+      return exists(codePath(codeId))
+        && get(codePath(codeId)).data.status == 'Active'
+        && getAfter(codePath(codeId)).data.status == 'Redeemed'
+        && getAfter(codePath(codeId)).data.redeemedByUid == request.auth.uid
+        && getAfter(codePath(codeId)).data.plan == plan;
+    }
+
+    // الحقول اللي الطالب مينفعش يغيّرها بنفسه
+    function lockedStudentKeys() {
+      return ['subscriptionPlan', 'subscriptionExpiryDate', 'status', 'email', 'studentId',
+              'isAdmin', 'activationHistory', 'registrationDate', 'notes'];
+    }
+
+    function ownerUnchangedOrMine() {
+      return request.resource.data.get('ownerUid', null) in [resource.data.get('ownerUid', null), request.auth.uid];
     }
 
     // ---- Staff (roles) ----
-    // المستخدم يقدر يقرأ دوره هو؛ السوبر أدمن يقرأ الكل ويكتب.
     match /staff/{uid} {
       allow read: if signedIn() && (isSuperAdmin() || request.auth.uid == uid);
-      // أثناء التهيئة: أول مستخدم مسجّل بيحط دوره بنفسه مرة واحدة
+      // الطالب بيربط حسابه بدور STUDENT فقط، بعد ما ملفه اتعمل
       allow create: if signedIn()
                     && request.auth.uid == uid
-                    && bootstrapOpen()
-                    && request.resource.data.role == 'SUPER_ADMIN';
-      // الطالب بيربط حسابه بدور STUDENT بعد التسجيل الذاتي
-      allow create: if signedIn()
-                    && request.auth.uid == uid
-                    && !bootstrapOpen()
-                    && request.resource.data.role == 'STUDENT';
-      allow update, delete: if isSuperAdmin();
+                    && request.resource.data.keys().hasOnly(['uid', 'email', 'role', 'studentId', 'updatedAt'])
+                    && request.resource.data.role == 'STUDENT'
+                    && request.resource.data.studentId == uid
+                    && exists(/databases/$(database)/documents/students/$(uid));
+      allow create, update, delete: if isSuperAdmin();
     }
 
-    // ---- Bootstrap flag (كتابة لمرة واحدة) ----
+    // ---- App meta (إعدادات عامة قابلة للقراءة، الكتابة للسوبر أدمن) ----
     match /appMeta/{docId} {
       allow read: if true;
-      // السوبر أدمن بس هو اللي بيقفل النافذة (بعد ما دوره اتسجّل)
-      allow create: if signedIn()
-                    && docId == 'bootstrap'
-                    && get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role == 'SUPER_ADMIN';
-      allow update, delete: if isSuperAdmin();
+      allow write: if isSuperAdmin();
     }
 
     // ---- Students ----
     match /students/{studentId} {
-      // الأدمن بيقرأ الكل، والطالب بيقرأ ملفه هو بس
       allow read: if isAdmin() || isSelf(studentId);
-      // التسجيل الذاتي: أي مستخدم مسجّل يقدر ينشئ **ملفه هو بس** —
-      // المعرّف = uid بتاعه، والـ ownerUid والبريد لازم يطابقوا توكن Auth.
-      // (الأدمن كمان يقدر ينشئ ملفات لأي طالب من جهازه.)
+
       allow create: if isAdmin()
-                    || (signedIn()
-                        && studentId == request.auth.uid
+                    || (isSelf(studentId)
                         && request.resource.data.ownerUid == request.auth.uid
-                        && request.resource.data.email == request.auth.token.email);
-      allow update: if isAdmin() || isSelf(studentId);
-      // الحذف للسوبر أدمن فقط — حذف نهائي
+                        && request.resource.data.email == request.auth.token.email
+                        && request.resource.data.isAdmin == false
+                        && request.resource.data.status == 'Active'
+                        && request.resource.data.activationHistory.size() == 1
+                        && codeRedeemedByMeFor(request.resource.data.subscriptionPlan,
+                                               usedCodeId(request.resource.data)));
+
+      allow update: if isAdmin()
+                    || (isSelf(studentId)
+                        && ownerUnchangedOrMine()
+                        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(lockedStudentKeys())
+                            // تجديد/ترقية بكود حقيقي (batch فيه تحديث الكود)
+                            || (request.resource.data.isAdmin == resource.data.isAdmin
+                                && request.resource.data.email == resource.data.email
+                                && request.resource.data.studentId == resource.data.studentId
+                                && request.resource.data.activationHistory.size() == resource.data.activationHistory.size() + 1
+                                && codeRedeemedByMeFor(request.resource.data.subscriptionPlan,
+                                                       usedCodeId(request.resource.data)))));
+
       allow delete: if isSuperAdmin();
     }
 
     // ---- Audit trail ----
-    // إضافة فقط للجميع، لكن السوبر أدمن يقدر يحذف (لازم لزر «حذف كل البيانات»)
     match /auditLogs/{logId} {
       allow read: if isAdmin();
-      allow create: if signedIn();
+      // الأدمن يكتب أي سجل؛ غير الأدمن يكتب سجلات «STUDENT» بس
+      allow create: if isAdmin()
+                    || (signedIn() && request.resource.data.actionSource == 'STUDENT');
       allow update: if false;
       allow delete: if isSuperAdmin();
     }
 
     // ---- Activation codes ----
-    // `get` مفتوح (الكود نفسه هو السر — الطالب بيتحقق منه قبل التسجيل)
-    // لكن `list` مقفول عشان محدش يسحب كل الأكواد.
+    // `get` مفتوح (الكود هو السر؛ الأكواد الجديدة طويلة وعشوائية بالتشفير)
+    // و`list` للأدمن فقط.
     match /activationCodes/{codeId} {
       allow get: if true;
       allow list: if isAdmin();
-      allow create, delete: if isAdmin();
-      // الاستهلاك: الأدمن بحالته، أو الطالب بيحوّل كوده من Active/Expired إلى
-      // Redeemed ويربطه بنفسه (بدون تغيير خطة/مدة/كود المستند).
-      allow update: if isAdmin()
+      allow create, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin()
+                    || (isAdmin() && request.resource.data.status == 'Revoked')
                     || (signedIn()
-                        && resource.data.status in ['Active', 'Expired']
+                        && resource.data.status == 'Active'
                         && request.resource.data.status == 'Redeemed'
                         && request.resource.data.redeemedByUid == request.auth.uid
                         && request.resource.data.code == resource.data.code
@@ -116,7 +152,6 @@ service cloud.firestore {
                         && request.resource.data.maxDevices == resource.data.maxDevices);
     }
 
-    // ملفات الكتب اتشالت من التطبيق (مفيش رفع ملفات) — المجموعات دي مقفولة
     match /bookFiles/{fileId} {
       allow read, write: if false;
       match /chunks/{chunkId} {
