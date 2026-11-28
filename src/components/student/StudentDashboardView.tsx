@@ -4,6 +4,7 @@ import { Logo } from '../brand/Logo';
 import { StudySetupWizard } from './StudySetupWizard';
 import { getStageCurriculum } from '../../data/curriculum';
 import { StudentSettings } from './StudentSettings';
+import { MinistryLinks } from './MinistryLinks';
 import { formatDateAr, planProgressPercent } from '../../lib/planEngine';
 import {
   Flame,
@@ -560,6 +561,8 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
                 </div>
               </div>
             )}
+
+            <MinistryLinks isArabic={isArabic} />
           </div>
         )}
 

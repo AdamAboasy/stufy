@@ -25,6 +25,11 @@ import {
 } from 'firebase/firestore';
 import { db, auth, COLLECTIONS } from './firebase';
 import { Student } from '../types';
+import { toLocalIsoDate, withDerivedStats } from './studentStats';
+
+/** كل قراءة بتمرّ هنا: الإحصائيات بتتحسب من الخطة الفعلية (مش أصفار قديمة) */
+const hydrate = (data: unknown, id: string): Student =>
+  withDerivedStats({ ...(data as Student), id }, toLocalIsoDate(new Date()));
 
 const studentsCol = () => collection(db, COLLECTIONS.students);
 
@@ -51,7 +56,7 @@ export const subscribeStudents = (
     studentsCol(),
     { includeMetadataChanges: true },
     snapshot => {
-      const list = snapshot.docs.map(d => ({ ...(d.data() as Student), id: d.id }));
+      const list = snapshot.docs.map(d => hydrate(d.data(), d.id));
       onData(list, { fromCache: snapshot.metadata.fromCache });
       onState({
         status: snapshot.metadata.fromCache ? 'connecting' : 'online',
@@ -84,7 +89,7 @@ export const subscribeStudentById = (
   onSnapshot(
     doc(db, COLLECTIONS.students, id),
     snapshot => {
-      onData(snapshot.exists() ? ({ ...(snapshot.data() as Student), id: snapshot.id }) : null);
+      onData(snapshot.exists() ? hydrate(snapshot.data(), snapshot.id) : null);
     },
     error => onError?.(error)
   );
@@ -95,7 +100,7 @@ export const subscribeStudentById = (
 
 export const fetchStudentsFromServer = async (): Promise<Student[]> => {
   const snapshot = await getDocsFromServer(studentsCol());
-  return snapshot.docs.map(d => ({ ...(d.data() as Student), id: d.id }));
+  return snapshot.docs.map(d => hydrate(d.data(), d.id));
 };
 
 /**
@@ -114,7 +119,7 @@ export const findStudentByEmail = async (
     );
     if (!snapshot.empty) {
       const d = snapshot.docs[0];
-      return { ok: true, student: { ...(d.data() as Student), id: d.id } };
+      return { ok: true, student: hydrate(d.data(), d.id) };
     }
     // fallback: حالة أحرف مختلفة (بيانات قديمة)
     const all = await fetchStudentsFromServer();
@@ -126,7 +131,7 @@ export const findStudentByEmail = async (
 
 export const getStudentById = async (id: string): Promise<Student | null> => {
   const snap = await getDoc(doc(db, COLLECTIONS.students, id));
-  return snap.exists() ? ({ ...(snap.data() as Student), id: snap.id } as Student) : null;
+  return snap.exists() ? hydrate(snap.data(), snap.id) : null;
 };
 
 export const emailExists = async (email: string): Promise<boolean> => {
@@ -149,8 +154,9 @@ export const upsertStudent = async (
 ): Promise<{ ok: boolean; error?: string }> => {
   try {
     // تنظيف أي حقل قيمته undefined قبل الكتابة (Firestore بيرفضها بـ invalid-argument)
+    const withStats = withDerivedStats(student, toLocalIsoDate(new Date()));
     const clean = Object.fromEntries(
-      Object.entries(student).filter(([, value]) => value !== undefined)
+      Object.entries(withStats).filter(([, value]) => value !== undefined)
     ) as Student;
 
     await setDoc(
@@ -187,7 +193,7 @@ export const removeStudent = async (
 export const getStudentFromServer = async (id: string): Promise<Student | null> => {
   try {
     const snap = await getDocFromServer(doc(db, COLLECTIONS.students, id));
-    return snap.exists() ? ({ ...(snap.data() as Student), id: snap.id } as Student) : null;
+    return snap.exists() ? hydrate(snap.data(), snap.id) : null;
   } catch {
     return null;
   }
