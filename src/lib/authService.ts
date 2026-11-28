@@ -84,18 +84,28 @@ const errCode = (error: unknown) => (error as { code?: string })?.code || String
 /*  Staff roles                                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * قراءة دور المستخدم. الخطأ المؤقت (شبكة/توكن لسه ما جهزش) بيتحاول تاني ثم
+ * بيترمي — مش بيتحوّل لـ «طالب» بصمت (ده كان بيطرد الأدمن للصفحة الأولى).
+ * مستند مش موجود ⇒ null.
+ */
 export const getStaffRole = async (
   uid: string
 ): Promise<{ role: UserRole; studentId?: string } | null> => {
-  try {
-    const snap = await getDoc(doc(db, COLLECTIONS.staff, uid));
-    if (!snap.exists()) return null;
-    const data = snap.data() as { role?: UserRole; studentId?: string };
-    if (!data.role) return null;
-    return { role: data.role, studentId: data.studentId };
-  } catch {
-    return null;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const snap = await getDoc(doc(db, COLLECTIONS.staff, uid));
+      if (!snap.exists()) return null;
+      const data = snap.data() as { role?: UserRole; studentId?: string };
+      if (!data.role) return null;
+      return { role: data.role, studentId: data.studentId };
+    } catch (error) {
+      lastError = error;
+      await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+    }
   }
+  throw lastError;
 };
 
 const saveStaffRole = async (
@@ -150,18 +160,28 @@ const resolveSession = async (user: FirebaseUser): Promise<AppSession> => {
 
 export const watchSession = (
   onSession: (session: AppSession | null) => void
-): (() => void) =>
-  onAuthStateChanged(auth, async user => {
+): (() => void) => {
+  let last: AppSession | null = null;
+  return onAuthStateChanged(auth, async user => {
     if (!user) {
+      last = null;
       onSession(null);
       return;
     }
     try {
-      onSession(await resolveSession(user));
-    } catch {
-      onSession({ uid: user.uid, email: (user.email || '').toLowerCase(), role: 'STUDENT' });
+      last = await resolveSession(user);
+      onSession(last);
+    } catch (error) {
+      console.warn('[auth] could not read role', error);
+      // فشل القراءة ≠ «مش أدمن»: لو عندنا جلسة سابقة لنفس المستخدم نسيبها
+      onSession(
+        last && last.uid === user.uid
+          ? last
+          : { uid: user.uid, email: (user.email || '').toLowerCase(), role: 'STUDENT' }
+      );
     }
   });
+};
 
 export const getCurrentAuthUser = (): FirebaseUser | null => auth.currentUser;
 
